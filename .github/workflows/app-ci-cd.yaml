@@ -107,36 +107,6 @@ jobs:
           path: govulncheck.json
           retention-days: 7
 
-  security-report:
-    name: Report Security Results
-    needs: security-scans
-    if: always() && github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    permissions:
-      pull-requests: write
-    steps:
-      - name: Comment on PR
-        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.0.1
-        with:
-          script: |
-            const results = {
-              "Betterleaks (secrets)": "${{ needs.security-scans.outputs.betterleaks_result }}",
-              "Semgrep OSS (SAST)": "${{ needs.security-scans.outputs.semgrep_result }}",
-              "govulncheck (SCA)": "${{ needs.security-scans.outputs.govulncheck_result }}",
-            };
-            const icon = r => r === "success" ? "✅" : r === "failure" ? "❌" : "⚠️";
-            let body = "### 🔐 Security Scan Results\n\n| Check | Result |\n| --- | --- |\n";
-            for (const [name, result] of Object.entries(results)) {
-              body += `| ${name} | ${icon(result)} ${result} |\n`;
-            }
-            body += "\nSee the **Security** tab and workflow run for full findings.";
-            github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-              body,
-            });
-
   containerize-scan-sign-push:
     name: Containerize
     needs: security-scans
