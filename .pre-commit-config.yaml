@@ -1,0 +1,41 @@
+minimum_pre_commit_version: "3.2.0"
+default_install_hook_types: [pre-commit]
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: 3e8a8703264a2f4a69428a0aa4dcb512790b2c8c # v6.0.0
+    hooks:
+      - id: trailing-whitespace
+        entry: python3 .github/scripts/format-and-stage.py --fix-exit-one trailing-whitespace-fixer --markdown-linebreak-ext=md --
+      - id: end-of-file-fixer
+        entry: python3 .github/scripts/format-and-stage.py --fix-exit-one end-of-file-fixer --
+      - id: check-yaml
+        args: [--allow-multiple-documents]
+      - id: check-json
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: [--maxkb=1024]
+      - id: detect-private-key
+      - id: detect-aws-credentials
+        args: [--allow-missing-credentials]
+
+  - repo: local
+    hooks:
+      - id: format-yaml
+        name: Format YAML and restage fixes
+        entry: python3 .github/scripts/format-and-stage.py prettier --write --parser yaml --
+        language: node
+        additional_dependencies: [prettier@3.6.2]
+        types: [yaml]
+        require_serial: true
+      - id: gofmt
+        name: Format Go code
+        entry: python3 .github/scripts/format-and-stage.py gofmt -w --
+        language: system
+        types: [go]
+      - id: go-vet
+        name: Vet Go packages
+        entry: go vet ./...
+        language: system
+        files: '(\.go$|^go\.(mod|sum)$)'
+        pass_filenames: false

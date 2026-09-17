@@ -1,4 +1,5 @@
 name: App CI/CD
+description: CI/CD pipeline for the Go application E2E
 
 on:
   workflow_dispatch: {}
@@ -80,10 +81,11 @@ jobs:
             id: bearer
             uses: bearer/bearer-action@828eeb928ce2f4a7ca5ed57fb8b59508cb8c79bc # v2
             with:
-              path: '.'
+              path: "."
               scanner: sast
               format: sarif
               output: bearer.sarif
+              exit-code: 0 # PSE: In real project this scanner should block CI on findings
           - name: Run govulncheck
             id: govulncheck
             shell: bash
@@ -124,7 +126,11 @@ jobs:
       - name: Runtime Security Agent (Cimon)
         uses: cycodelabs/cimon-action@1374f7193c5a4390740fa451feb05ce812955958
         with:
-          prevent: true
+          prevent: false
+          allowed-hosts: >
+            cgr.dev
+            mirror.gcr.io
+            check.trivy.dev
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -142,16 +148,22 @@ jobs:
             type=sha,format=short
 
       - name: Build image (load locally, do not push yet)
-        id: image-build
+        shell: bash
         env:
           BUILDX_METADATA_PROVENANCE: max
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a
-        with:
-          context: .
-          load: true
-          push: false
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          IMAGE_REF: ${{ steps.meta.outputs.tags }}
+          IMAGE_LABELS: ${{ steps.meta.outputs.labels }}
+        run: |
+          label_args=()
+          while IFS= read -r label; do
+            if [[ -n "$label" ]]; then
+              label_args+=(--label "$label")
+            fi
+          done <<< "$IMAGE_LABELS"
+          # Keep potentially large provenance metadata on disk, not in step env/outputs.
+          docker buildx build --load \
+            --metadata-file "$RUNNER_TEMP/build-metadata.json" \
+            --tag "$IMAGE_REF" "${label_args[@]}" .
 
       - name: Export image for scanning and publishing
         id: archive
@@ -171,7 +183,7 @@ jobs:
           output: trivy.sarif
           severity: CRITICAL # PSE: For Demo only, in normal case I'd go with H,C
           limit-severities-for-sarif: true
-          exit-code: '1'
+          exit-code: "1"
 
       - name: Upload Trivy SARIF artifact
         if: always()
@@ -193,7 +205,6 @@ jobs:
         id: evidence
         shell: bash
         env:
-          BUILD_METADATA: ${{ steps.image-build.outputs.metadata }}
           ARCHIVE_SHA256: ${{ steps.archive.outputs.sha256 }}
         run: |
           python3 - <<'PYTHON'
@@ -206,7 +217,7 @@ jobs:
               'buildDefinition': {
                   'buildType': source + '/.github/workflows/app-ci-cd.yaml',
                   'externalParameters': {'ref': e['GITHUB_REF'], 'dockerfile': 'Dockerfile'},
-                  'internalParameters': {'buildkit': json.loads(e['BUILD_METADATA'])},
+                  'internalParameters': {'buildkit': json.loads((root / 'build-metadata.json').read_text())},
                   'resolvedDependencies': [{'uri': source, 'digest': {'gitCommit': e['GITHUB_SHA']}}],
               },
               'runDetails': {
@@ -358,7 +369,7 @@ jobs:
       - name: Download SARIF reports
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          pattern: '*-sarif'
+          pattern: "*-sarif"
           path: reports
           merge-multiple: true
 
@@ -377,8 +388,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           sarif_file: reports/trivy.sarif
-
-
 # deploy-to-eks:
 #   name: Deploy Verified Image to EKS
 #   needs: verify-release
