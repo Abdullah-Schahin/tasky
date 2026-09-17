@@ -143,7 +143,7 @@ jobs:
           format: sarif
           output: trivy.sarif
           severity: HIGH,CRITICAL
-          exit-code: 0 # report-only for now; findings surface via SARIF/PR comment instead of blocking the pipeline
+          #exit-code: 0 #PSE: report-only for now; findings surface via SARIF/PR comment instead of blocking the pipeline
 
       - name: Post Trivy SARIF to PR
         if: always() && github.event_name == 'pull_request'
