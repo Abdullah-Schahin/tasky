@@ -1,4 +1,5 @@
 name: App CI/CD
+description: CI/CD pipeline for the Go application E2E
 
 on:
   workflow_dispatch: {}
@@ -80,7 +81,7 @@ jobs:
             id: bearer
             uses: bearer/bearer-action@828eeb928ce2f4a7ca5ed57fb8b59508cb8c79bc # v2
             with:
-              path: '.'
+              path: "."
               scanner: sast
               format: sarif
               output: bearer.sarif
@@ -172,7 +173,7 @@ jobs:
           output: trivy.sarif
           severity: CRITICAL # PSE: For Demo only, in normal case I'd go with H,C
           limit-severities-for-sarif: true
-          exit-code: '1'
+          exit-code: "1"
 
       - name: Upload Trivy SARIF artifact
         if: always()
@@ -359,7 +360,7 @@ jobs:
       - name: Download SARIF reports
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          pattern: '*-sarif'
+          pattern: "*-sarif"
           path: reports
           merge-multiple: true
 
@@ -378,7 +379,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           sarif_file: reports/trivy.sarif
-
 
 # deploy-to-eks:
 #   name: Deploy Verified Image to EKS
