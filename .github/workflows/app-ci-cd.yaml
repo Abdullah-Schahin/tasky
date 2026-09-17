@@ -129,6 +129,7 @@ jobs:
           prevent: true
           allowed-hosts: >
             cgr.dev
+            mirror.gcr.io
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -381,7 +382,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           sarif_file: reports/trivy.sarif
-
 # deploy-to-eks:
 #   name: Deploy Verified Image to EKS
 #   needs: verify-release
