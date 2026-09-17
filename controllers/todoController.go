@@ -6,10 +6,10 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/jeffthorne/tasky/auth"
 	"github.com/jeffthorne/tasky/database"
 	"github.com/jeffthorne/tasky/models"
-	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -35,11 +35,12 @@ func GetTodo(c *gin.Context) {
 
 func ClearAll(c *gin.Context) {
 	session := auth.ValidateSession(c)
-	if !session{
+	if !session {
 		return
-	} 
-	
+	}
+
 	var ctx, cancel = context.WithTimeout(context.Background(), 100*time.Second)
+	defer cancel()
 	userid := c.Param("userid")
 	_, err := todoCollection.DeleteMany(ctx, bson.M{"userid": userid})
 
@@ -48,17 +49,17 @@ func ClearAll(c *gin.Context) {
 		return
 	}
 
-	defer cancel()
 	c.JSON(http.StatusOK, gin.H{"success": "All todos deleted."})
 
 }
 
 func GetTodos(c *gin.Context) {
 	session := auth.ValidateSession(c)
-	if !session{
+	if !session {
 		return
-	} 
+	}
 	var ctx, cancel = context.WithTimeout(context.Background(), 100*time.Second)
+	defer cancel()
 	userid := c.Param("userid")
 	findResult, err := todoCollection.Find(ctx, bson.M{"userid": userid})
 	if err != nil {
@@ -76,17 +77,17 @@ func GetTodos(c *gin.Context) {
 		}
 		todos = append(todos, todo)
 	}
-	defer cancel()
 
 	c.JSON(http.StatusOK, todos)
 }
 
 func DeleteTodo(c *gin.Context) {
 	session := auth.ValidateSession(c)
-	if !session{
+	if !session {
 		return
-	} 
+	}
 	var ctx, cancel = context.WithTimeout(context.Background(), 100*time.Second)
+	defer cancel()
 
 	id := c.Param("id")
 	userid := c.Param("userid")
@@ -101,7 +102,6 @@ func DeleteTodo(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": msg})
 		return
 	}
-	defer cancel()
 
 	msg := fmt.Sprintf("todo with id : %v was deleted successfully.", id)
 	c.JSON(http.StatusOK, gin.H{"success": msg})
@@ -110,34 +110,34 @@ func DeleteTodo(c *gin.Context) {
 
 func UpdateTodo(c *gin.Context) {
 	session := auth.ValidateSession(c)
-	if !session{
+	if !session {
 		return
-	} 
+	}
 	var ctx, cancel = context.WithTimeout(context.Background(), 100*time.Second)
+	defer cancel()
 	var newTodo models.Todo
 	if err := c.BindJSON(&newTodo); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	_, err := todoCollection.UpdateOne(ctx, bson.M{"_id": newTodo.ID, "userid" : newTodo.UserID}, bson.M{"$set": newTodo})
+	_, err := todoCollection.UpdateOne(ctx, bson.M{"_id": newTodo.ID, "userid": newTodo.UserID}, bson.M{"$set": newTodo})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		fmt.Println(err.Error())
 		return
 	}
 
-	defer cancel()
-
 	c.JSON(http.StatusOK, newTodo)
 }
 
 func AddTodo(c *gin.Context) {
 	session := auth.ValidateSession(c)
-	if !session{
+	if !session {
 		return
-	} 
+	}
 	var ctx, cancel = context.WithTimeout(context.Background(), 100*time.Second)
+	defer cancel()
 
 	var todo models.Todo
 	if err := c.BindJSON(&todo); err != nil {
@@ -153,6 +153,5 @@ func AddTodo(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	defer cancel()
 	c.JSON(http.StatusOK, gin.H{"insertedId": todo.ID})
 }

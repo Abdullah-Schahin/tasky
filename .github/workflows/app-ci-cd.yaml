@@ -30,7 +30,7 @@ jobs:
           go-version: 1.19
       - name: Build
         run: go build ./...
-      - name: Vet
+      - name: Lint (Vet)
         run: go vet ./...
 
   secret-scan:
