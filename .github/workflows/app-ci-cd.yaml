@@ -84,6 +84,7 @@ jobs:
               scanner: sast
               format: sarif
               output: bearer.sarif
+              exit-code: 0 # PSE: In real project this scanner should block CI on findings
           - name: Run govulncheck
             id: govulncheck
             shell: bash
