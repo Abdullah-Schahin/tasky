@@ -5,10 +5,10 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
     branches: [main]
-    paths: ["**.go", "Dockerfile", "wizexercise.txt", ".github/workflows/app-ci-cd.yaml"]
+    paths-ignore: ["infra/**", "**.md"]
   push:
     branches: [main]
-    paths: ["**.go", "Dockerfile", "wizexercise.txt", ".github/workflows/app-ci-cd.yaml"]
+    paths-ignore: ["infra/**", "**.md"]
 
 env:
   REGISTRY: ghcr.io
@@ -28,6 +28,8 @@ jobs:
           prevent: true
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
         with:
@@ -42,8 +44,7 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     permissions:
-      contents: write
-      pull-requests: write # required by SARIFCourier to post PR comments
+      contents: read
     outputs:
       trufflehog_result: ${{ steps.trufflehog.outcome }}
       bearer_result: ${{ steps.bearer.outcome }}
@@ -58,6 +59,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
+          persist-credentials: false
           fetch-depth: 0
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
@@ -69,7 +71,6 @@ jobs:
       - parallel:
           - name: Run TruffleHog
             id: trufflehog
-            continue-on-error: true
             uses: trufflesecurity/trufflehog@288a8a8643a2c5a36b81d231c550dccfa0beeb64 # main
             with:
               extra_args: --results=verified,unknown
@@ -81,18 +82,14 @@ jobs:
               scanner: sast
               format: sarif
               output: bearer.sarif
-              exit-code: 0
           - name: Run govulncheck
             id: govulncheck
-            run: govulncheck -json ./... | tee govulncheck.json || true
-
-      - name: Post Bearer SARIF to PR
-        if: always() && github.event_name == 'pull_request'
-        uses: falc0nTech/SARIFCourier@5f5e90a6efcfb9eb8740b71243e4aad9b4e1398a # v1.0.13
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          sarif_file: bearer.sarif
+            shell: bash
+            run: |
+              # JSON mode produces a report but does not fail on vulnerability findings.
+              govulncheck -json ./... > govulncheck.json
+              # Text mode fails the job when reachable vulnerabilities are found.
+              govulncheck ./...
 
       - name: Upload Bearer SARIF artifact
         if: always()
@@ -110,18 +107,17 @@ jobs:
           path: govulncheck.json
           retention-days: 7
 
-  containerize-scan-sign-push:
+  containerize-scan:
     name: Containerize
     needs: security-scans
     runs-on: ubuntu-latest
     permissions:
-      contents: write
-      packages: write
-      pull-requests: write # required by SARIFCourier to post PR comments
-      id-token: write # required for keyless Cosign signing via OIDC
+      contents: read
     outputs:
       image: ${{ steps.meta.outputs.tags }}
-      digest: ${{ steps.push.outputs.digest }}
+      archive-sha256: ${{ steps.archive.outputs.sha256 }}
+      artifact-id: ${{ steps.upload-image.outputs.artifact-id }}
+      evidence-sha256: ${{ steps.evidence.outputs.sha256 }}
     steps:
       - name: Runtime Security Agent (Cimon)
         uses: cycodelabs/cimon-action@1374f7193c5a4390740fa451feb05ce812955958
@@ -129,6 +125,8 @@ jobs:
           prevent: true
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
@@ -142,6 +140,9 @@ jobs:
             type=sha,format=short
 
       - name: Build image (load locally, do not push yet)
+        id: image-build
+        env:
+          BUILDX_METADATA_PROVENANCE: max
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a
         with:
           context: .
@@ -150,22 +151,25 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
 
+      - name: Export image for scanning and publishing
+        id: archive
+        shell: bash
+        env:
+          IMAGE_REF: ${{ steps.meta.outputs.tags }}
+        run: |
+          docker image save --output "$RUNNER_TEMP/tasky-image.tar" "$IMAGE_REF"
+          archive_sha256=$(sha256sum "$RUNNER_TEMP/tasky-image.tar" | cut -d ' ' -f 1)
+          echo "sha256=$archive_sha256" >> "$GITHUB_OUTPUT"
+
       - name: Scan image with Trivy
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
-          image-ref: ${{ steps.meta.outputs.tags }}
+          input: ${{ runner.temp }}/tasky-image.tar
           format: sarif
           output: trivy.sarif
           severity: CRITICAL # PSE: For Demo only, in normal case I'd go with H,C
-          #exit-code: 0 #PSE: report-only for now; findings surface via SARIF/PR comment instead of blocking the pipeline
-
-      - name: Post Trivy SARIF to PR
-        if: always() && github.event_name == 'pull_request'
-        uses: falc0nTech/SARIFCourier@5f5e90a6efcfb9eb8740b71243e4aad9b4e1398a # v1.0.13
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          sarif_file: trivy.sarif
+          limit-severities-for-sarif: true
+          exit-code: '1'
 
       - name: Upload Trivy SARIF artifact
         if: always()
@@ -175,30 +179,122 @@ jobs:
           path: trivy.sarif
           retention-days: 7
 
-      - name: Log in to the Container registry
+      - name: Generate SPDX SBOM from scanned image
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          input: ${{ runner.temp }}/tasky-image.tar
+          format: spdx-json
+          output: ${{ runner.temp }}/sbom.spdx.json
+          skip-setup-trivy: true
+
+      - name: Record build provenance and evidence checksums
+        id: evidence
+        shell: bash
+        env:
+          BUILD_METADATA: ${{ steps.image-build.outputs.metadata }}
+          ARCHIVE_SHA256: ${{ steps.archive.outputs.sha256 }}
+        run: |
+          python3 - <<'PYTHON'
+          import json, os, pathlib
+          e = os.environ
+          root = pathlib.Path(e['RUNNER_TEMP'])
+          source = e['GITHUB_SERVER_URL'] + '/' + e['GITHUB_REPOSITORY']
+          workflow = source + '/.github/workflows/app-ci-cd.yaml@' + e['GITHUB_REF']
+          predicate = {
+              'buildDefinition': {
+                  'buildType': source + '/.github/workflows/app-ci-cd.yaml',
+                  'externalParameters': {'ref': e['GITHUB_REF'], 'dockerfile': 'Dockerfile'},
+                  'internalParameters': {'buildkit': json.loads(e['BUILD_METADATA'])},
+                  'resolvedDependencies': [{'uri': source, 'digest': {'gitCommit': e['GITHUB_SHA']}}],
+              },
+              'runDetails': {
+                  'builder': {'id': workflow},
+                  'metadata': {'invocationId': source + '/actions/runs/' + e['GITHUB_RUN_ID'] + '/attempts/' + e['GITHUB_RUN_ATTEMPT']},
+                  'byproducts': [{'name': 'scanned-image.tar', 'digest': {'sha256': e['ARCHIVE_SHA256']}}],
+              },
+          }
+          (root / 'provenance.json').write_text(json.dumps(predicate))
+          PYTHON
+          cd "$RUNNER_TEMP"
+          sha256sum sbom.spdx.json provenance.json > evidence.sha256
+          echo "sha256=$(sha256sum evidence.sha256 | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
+
+      - name: Upload scanned image
+        id: upload-image
         if: success() && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: scanned-image
+          path: |
+            ${{ runner.temp }}/tasky-image.tar
+            ${{ runner.temp }}/sbom.spdx.json
+            ${{ runner.temp }}/provenance.json
+            ${{ runner.temp }}/evidence.sha256
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
+
+  publish-sign:
+    name: Publish and Sign
+    needs: containerize-scan
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    outputs:
+      image: ${{ needs.containerize-scan.outputs.image }}
+      digest: ${{ steps.push.outputs.digest }}
+    steps:
+      - name: Runtime Security Agent (Cimon)
+        uses: cycodelabs/cimon-action@1374f7193c5a4390740fa451feb05ce812955958
+        with:
+          prevent: true
+      - name: Download scanned image
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          artifact-ids: ${{ needs.containerize-scan.outputs.artifact-id }}
+          path: ${{ runner.temp }}/scanned-image
+          merge-multiple: true
+
+      - name: Verify and load scanned image
+        shell: bash
+        env:
+          ARCHIVE_SHA256: ${{ needs.containerize-scan.outputs.archive-sha256 }}
+          EVIDENCE_SHA256: ${{ needs.containerize-scan.outputs.evidence-sha256 }}
+        run: |
+          [[ "$ARCHIVE_SHA256" =~ ^[a-f0-9]{64}$ ]] || exit 1
+          printf '%s  %s\n' "$ARCHIVE_SHA256" "$RUNNER_TEMP/scanned-image/tasky-image.tar" | sha256sum --check --strict
+          [[ "$EVIDENCE_SHA256" =~ ^[a-f0-9]{64}$ ]] || exit 1
+          cd "$RUNNER_TEMP/scanned-image"
+          printf '%s  evidence.sha256\n' "$EVIDENCE_SHA256" | sha256sum --check --strict
+          sha256sum --check --strict evidence.sha256
+          docker image load --input "$RUNNER_TEMP/scanned-image/tasky-image.tar"
+
+      - name: Log in to the Container registry
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Push image
+      - name: Push scanned image
         id: push
-        if: success() && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a
-        with:
-          context: .
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+        shell: bash
+        env:
+          IMAGE_REF: ${{ needs.containerize-scan.outputs.image }}
+        run: |
+          docker image push "$IMAGE_REF"
+          digest=$(docker image inspect "$IMAGE_REF" --format '{{json .RepoDigests}}' |
+            jq -er --arg repository "${IMAGE_REF%:*}@" '.[] | select(startswith($repository)) | split("@")[1]')
+          [[ "$digest" =~ ^sha256:[a-f0-9]{64}$ ]] || exit 1
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
 
       - name: Install Cosign
-        if: success() && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
 
       - name: Sign image (keyless via GitHub OIDC)
-        if: success() && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
         shell: bash
         env:
           IMAGE_DIGEST: ${{ steps.push.outputs.digest }}
@@ -207,43 +303,113 @@ jobs:
           image_name=$(printf '%s' "$IMAGE_NAME" | tr '[:upper:]' '[:lower:]')
           cosign sign --yes "${REGISTRY}/${image_name}@${IMAGE_DIGEST}"
 
-  #deploy-to-eks:
-  #  name: Deploy to EKS
-  #  needs: containerize-scan-sign-push
-  #  if: github.ref == 'refs/heads/main'
-  #  runs-on: ubuntu-latest
-  #  environment: production
-  #  permissions:
-  #    contents: read
-  #    id-token: write # required for AWS OIDC auth
-  #  steps:
-  #   - name: Runtime Security Agent (Cimon)
-  #     uses: cycodelabs/cimon-action@1374f7193c5a4390740fa451feb05ce812955958
-  #     with:
-  #       prevent: true
-  #    - name: Checkout code
-  #      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-#
-  #    - name: Configure AWS credentials (OIDC)
-  #      uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
-  #      with:
-  #        role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }} # placeholder: set as repo/org variable
-  #        aws-region: ${{ vars.AWS_REGION }} # placeholder: set as repo/org variable
-#
-  #    - name: Update kubeconfig
-  #      run: aws eks update-kubeconfig --name "${{ vars.EKS_CLUSTER_NAME }}" --region "${{ vars.AWS_REGION }}"
-#
-  #    - name: Deploy manifests
-  #      run: kubectl apply -f infra/cloud/deployment.yaml
-#
-  #    - name: Set new image
-  #      run: |
-  #        kubectl set image deployment/tasky tasky="${{ needs.containerize-scan-sign-push.outputs.image }}" -n tasky
-#
-  #    - name: Wait for rollout
-  #      run: kubectl rollout status deployment/tasky -n tasky --timeout=120s
-#
-  #    - name: Verify application health
-  #      run: |
-  #        kubectl run health-check --rm -i --restart=Never --image=curlimages/curl -n tasky -- \
-  #          curl --fail --silent --max-time 10 http://tasky.tasky.svc.cluster.local/
+      - name: Sign SBOM and provenance attestations
+        shell: bash
+        env:
+          IMAGE_DIGEST: ${{ steps.push.outputs.digest }}
+        run: |
+          image_name=$(printf '%s' "$IMAGE_NAME" | tr '[:upper:]' '[:lower:]')
+          image="${REGISTRY}/${image_name}@${IMAGE_DIGEST}"
+          cosign attest --yes --type spdxjson --predicate "$RUNNER_TEMP/scanned-image/sbom.spdx.json" "$image"
+          cosign attest --yes --type slsaprovenance1 --predicate "$RUNNER_TEMP/scanned-image/provenance.json" "$image"
+
+  verify-release:
+    name: Verify Release Identity and Attestations
+    needs: publish-sign
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    outputs:
+      image: ${{ steps.reference.outputs.image }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+      - name: Verify signed image, SBOM and provenance
+        id: reference
+        shell: bash
+        env:
+          IMAGE_DIGEST: ${{ needs.publish-sign.outputs.digest }}
+        run: |
+          image_name=$(printf '%s' "$IMAGE_NAME" | tr '[:upper:]' '[:lower:]')
+          export IMAGE="${REGISTRY}/${image_name}@${IMAGE_DIGEST}"
+          bash .github/scripts/verify-image.sh
+          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
+
+  report-security:
+    name: Comment on Security Reports
+    needs: [security-scans, containerize-scan]
+    # Fork PRs retain report artifacts but cannot use a write token for comments.
+    if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Download SARIF reports
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: '*-sarif'
+          path: reports
+          merge-multiple: true
+
+      - name: Post Bearer SARIF to PR
+        if: hashFiles('reports/bearer.sarif') != ''
+        uses: falc0nTech/SARIFCourier@5f5e90a6efcfb9eb8740b71243e4aad9b4e1398a # v1.0.13
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          sarif_file: reports/bearer.sarif
+
+      - name: Post Trivy SARIF to PR
+        if: hashFiles('reports/trivy.sarif') != ''
+        uses: falc0nTech/SARIFCourier@5f5e90a6efcfb9eb8740b71243e4aad9b4e1398a # v1.0.13
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          sarif_file: reports/trivy.sarif
+
+
+# deploy-to-eks:
+#   name: Deploy Verified Image to EKS
+#   needs: verify-release
+#   if: github.ref == 'refs/heads/main' && vars.ENABLE_EKS_DEPLOY == 'true'
+#   runs-on: ubuntu-latest
+#   environment: production
+#   permissions:
+#     contents: read
+#     id-token: write
+#   steps:
+#     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+#       with:
+#         persist-credentials: false
+#     - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
+#       with:
+#         role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+#         aws-region: ${{ vars.AWS_REGION }}
+#     - name: Deploy verified digest
+#       shell: bash
+#       env:
+#         IMAGE: ${{ needs.verify-release.outputs.image }}
+#         EKS_CLUSTER_NAME: ${{ vars.EKS_CLUSTER_NAME }}
+#         AWS_REGION: ${{ vars.AWS_REGION }}
+#       run: |
+#         [[ "$IMAGE" =~ @sha256:[a-f0-9]{64}$ ]] || exit 1
+#         aws eks update-kubeconfig --name "$EKS_CLUSTER_NAME" --region "$AWS_REGION"
+#         # Render locally so the placeholder tag is never applied to the cluster.
+#         mkdir -p "$RUNNER_TEMP/deploy"
+#         cp infra/k8s/deployment.yaml "$RUNNER_TEMP/deploy/deployment.yaml"
+#         jq -n --arg name "${IMAGE%@*}" --arg digest "${IMAGE#*@}" '{
+#           apiVersion: "kustomize.config.k8s.io/v1beta1", kind: "Kustomization",
+#           resources: ["deployment.yaml"],
+#           images: [{name: "ghcr.io/OWNER/REPO", newName: $name, digest: $digest}]
+#         }' > "$RUNNER_TEMP/deploy/kustomization.yaml"
+#         kubectl apply -k "$RUNNER_TEMP/deploy"
+#         kubectl rollout status deployment/tasky -n tasky --timeout=120s
