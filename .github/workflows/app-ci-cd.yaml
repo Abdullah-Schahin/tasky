@@ -41,8 +41,8 @@ jobs:
       contents: write
       pull-requests: write # required by SARIFCourier to post PR comments
     outputs:
-      betterleaks_result: ${{ steps.betterleaks.outcome }}
-      semgrep_result: ${{ steps.semgrep.outcome }}
+      trufflehog_result: ${{ steps.trufflehog.outcome }}
+      bearer_result: ${{ steps.bearer.outcome }}
       govulncheck_result: ${{ steps.govulncheck.outcome }}
     steps:
       - name: Checkout code
@@ -57,46 +57,39 @@ jobs:
         run: go install golang.org/x/vuln/cmd/govulncheck@latest
 
       - parallel:
-          - name: Run Betterleaks
-            id: betterleaks
-            run: |
-              docker run --rm -v "$PWD:/repo" -w /repo ghcr.io/betterleaks/betterleaks@sha256:8b9d12db5e11ca798029da44923503de5d8cfff6992cffaaa6722fbeb9fc7797 \
-                dir . --report-path betterleaks.sarif --report-format sarif
-          - name: Run Semgrep
-            id: semgrep
-            run: |
-              docker run --rm -v "$PWD:/src" returntocorp/semgrep@sha256:34ab619bf1391a24bfda3f05debd0d8a6ce3093c2d5f9d39cfc00f83c1397823 semgrep scan \
-                --config=auto --sarif -o /src/semgrep.sarif --error || true
+          - name: Run TruffleHog
+            id: trufflehog
+            continue-on-error: true
+            uses: trufflesecurity/trufflehog@288a8a8643a2c5a36b81d231c550dccfa0beeb64 # main
+            with:
+              extra_args: --results=verified,unknown
+          - name: Run Bearer
+            id: bearer
+            uses: bearer/bearer-action@828eeb928ce2f4a7ca5ed57fb8b59508cb8c79bc # v2
+            with:
+              path: '.'
+              scanner: sast
+              format: sarif
+              output: bearer.sarif
+              exit-code: 0
           - name: Run govulncheck
             id: govulncheck
             run: govulncheck -json ./... | tee govulncheck.json || true
 
-      - name: Post Betterleaks SARIF to PR
+      - name: Post Bearer SARIF to PR
         if: always() && github.event_name == 'pull_request'
         uses: falc0nTech/SARIFCourier@5f5e90a6efcfb9eb8740b71243e4aad9b4e1398a # v1.0.13
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          sarif_file: betterleaks.sarif
+          sarif_file: bearer.sarif
 
-      - name: Upload Betterleaks SARIF artifact
+      - name: Upload Bearer SARIF artifact
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: betterleaks-sarif
-          path: betterleaks.sarif
-          retention-days: 7
-
-      - name: Post Semgrep SARIF to PR
-        if: always() && github.event_name == 'pull_request'
-        uses: falc0nTech/SARIFCourier@5f5e90a6efcfb9eb8740b71243e4aad9b4e1398a # v1.0.13
-        with:
-          sarif_file: semgrep.sarif
-
-      - name: Upload Semgrep SARIF artifact
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: semgrep-sarif
-          path: semgrep.sarif
+          name: bearer-sarif
+          path: bearer.sarif
           retention-days: 7
 
       - name: Upload govulncheck report
@@ -155,6 +148,8 @@ jobs:
       - name: Post Trivy SARIF to PR
         if: always() && github.event_name == 'pull_request'
         uses: falc0nTech/SARIFCourier@5f5e90a6efcfb9eb8740b71243e4aad9b4e1398a # v1.0.13
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           sarif_file: trivy.sarif
 
