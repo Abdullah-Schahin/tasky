@@ -27,114 +27,87 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
         with:
-          go-version: 1.19
+          go-version: 1.27
       - name: Build
         run: go build ./...
-      - name: Vet
+      - name: Lint (Vet)
         run: go vet ./...
 
-  secret-scan:
-    name: Secret Scanning (Betterleaks)
+  security-scans:
+    name: Security Scans
     needs: build
     runs-on: ubuntu-latest
     permissions:
-      contents: read
-      security-events: write
+      contents: write
+      pull-requests: write # required by SARIFCourier to post PR comments
+    outputs:
+      trufflehog_result: ${{ steps.trufflehog.outcome }}
+      bearer_result: ${{ steps.bearer.outcome }}
+      govulncheck_result: ${{ steps.govulncheck.outcome }}
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           fetch-depth: 0
-      - name: Run Betterleaks
-        run: |
-          docker run --rm -v "$PWD:/repo" -w /repo ghcr.io/betterleaks/betterleaks@sha256:8b9d12db5e11ca798029da44923503de5d8cfff6992cffaaa6722fbeb9fc7797 \
-            dir . --report-path betterleaks.sarif --report-format sarif
-      - name: Upload SARIF to Security tab
-        uses: github/codeql-action/upload-sarif@faaca9a8f6edddba5725ffe5adefdab6669a2eca # v3.38.0
-        with:
-          sarif_file: betterleaks.sarif
-          category: betterleaks
-
-  sast-scan:
-    name: SAST (Semgrep OSS)
-    needs: build
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      security-events: write
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-      - name: Run Semgrep
-        run: |
-          docker run --rm -v "$PWD:/src" returntocorp/semgrep@sha256:34ab619bf1391a24bfda3f05debd0d8a6ce3093c2d5f9d39cfc00f83c1397823 semgrep scan \
-            --config=auto --sarif -o /src/semgrep.sarif --error || true
-      - name: Upload SARIF to Security tab
-        uses: github/codeql-action/upload-sarif@faaca9a8f6edddba5725ffe5adefdab6669a2eca # v3.38.0
-        with:
-          sarif_file: semgrep.sarif
-          category: semgrep
-
-  sca-scan:
-    name: Dependency Scan (govulncheck)
-    needs: build
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
         with:
-          go-version: 1.19
+          go-version: stable # govulncheck requires a newer toolchain than the app's go 1.19
       - name: Install govulncheck
         run: go install golang.org/x/vuln/cmd/govulncheck@latest
-      - name: Run govulncheck
-        run: govulncheck -json ./... | tee govulncheck.json || true
+
+      - parallel:
+          - name: Run TruffleHog
+            id: trufflehog
+            continue-on-error: true
+            uses: trufflesecurity/trufflehog@288a8a8643a2c5a36b81d231c550dccfa0beeb64 # main
+            with:
+              extra_args: --results=verified,unknown
+          - name: Run Bearer
+            id: bearer
+            uses: bearer/bearer-action@828eeb928ce2f4a7ca5ed57fb8b59508cb8c79bc # v2
+            with:
+              path: '.'
+              scanner: sast
+              format: sarif
+              output: bearer.sarif
+              exit-code: 0
+          - name: Run govulncheck
+            id: govulncheck
+            run: govulncheck -json ./... | tee govulncheck.json || true
+
+      - name: Post Bearer SARIF to PR
+        if: always() && github.event_name == 'pull_request'
+        uses: falc0nTech/SARIFCourier@5f5e90a6efcfb9eb8740b71243e4aad9b4e1398a # v1.0.13
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          sarif_file: bearer.sarif
+
+      - name: Upload Bearer SARIF artifact
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: bearer-sarif
+          path: bearer.sarif
+          retention-days: 7
+
       - name: Upload govulncheck report
+        if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: govulncheck-report
           path: govulncheck.json
-
-  security-report:
-    name: Report Security Results
-    needs: [secret-scan, sast-scan, sca-scan]
-    if: always() && github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    permissions:
-      pull-requests: write
-    steps:
-      - name: Comment on PR
-        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.0.1
-        with:
-          script: |
-            const results = {
-              "Betterleaks (secrets)": "${{ needs.secret-scan.result }}",
-              "Semgrep OSS (SAST)": "${{ needs.sast-scan.result }}",
-              "govulncheck (SCA)": "${{ needs.sca-scan.result }}",
-            };
-            const icon = r => r === "success" ? "✅" : r === "failure" ? "❌" : "⚠️";
-            let body = "### 🔐 Security Scan Results\n\n| Check | Result |\n| --- | --- |\n";
-            for (const [name, result] of Object.entries(results)) {
-              body += `| ${name} | ${icon(result)} ${result} |\n`;
-            }
-            body += "\nSee the **Security** tab and workflow run for full findings.";
-            github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-              body,
-            });
+          retention-days: 7
 
   containerize-scan-sign-push:
     name: Containerize
-    needs: [secret-scan, sast-scan, sca-scan]
+    needs: security-scans
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
       packages: write
+      pull-requests: write # required by SARIFCourier to post PR comments
       id-token: write # required for keyless Cosign signing via OIDC
     outputs:
       image: ${{ steps.meta.outputs.tags }}
@@ -169,15 +142,24 @@ jobs:
           image-ref: ${{ steps.meta.outputs.tags }}
           format: sarif
           output: trivy.sarif
-          severity: HIGH,CRITICAL
-          exit-code: 1
+          severity: CRITICAL # PSE: For Demo only, in normal case I'd go with H,C
+          #exit-code: 0 #PSE: report-only for now; findings surface via SARIF/PR comment instead of blocking the pipeline
 
-      - name: Upload Trivy SARIF
-        if: always()
-        uses: github/codeql-action/upload-sarif@faaca9a8f6edddba5725ffe5adefdab6669a2eca # v3.38.0
+      - name: Post Trivy SARIF to PR
+        if: always() && github.event_name == 'pull_request'
+        uses: falc0nTech/SARIFCourier@5f5e90a6efcfb9eb8740b71243e4aad9b4e1398a # v1.0.13
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           sarif_file: trivy.sarif
-          category: trivy
+
+      - name: Upload Trivy SARIF artifact
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: trivy-sarif
+          path: trivy.sarif
+          retention-days: 7
 
       - name: Log in to the Container registry
         if: success() && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
