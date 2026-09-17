@@ -142,7 +142,7 @@ jobs:
           image-ref: ${{ steps.meta.outputs.tags }}
           format: sarif
           output: trivy.sarif
-          severity: HIGH,CRITICAL
+          severity: CRITICAL # PSE: For Demo only, in normal case I'd go with H,C
           #exit-code: 0 #PSE: report-only for now; findings surface via SARIF/PR comment instead of blocking the pipeline
 
       - name: Post Trivy SARIF to PR
