@@ -263,7 +263,9 @@ jobs:
       - name: Runtime Security Agent (Cimon)
         uses: cycodelabs/cimon-action@1374f7193c5a4390740fa451feb05ce812955958
         with:
-          prevent: true
+          prevent: false
+          alllow-hosts: >
+            tuf-repo-cdn.sigstore.dev
       - name: Download scanned image
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
@@ -336,6 +338,10 @@ jobs:
     outputs:
       image: ${{ steps.reference.outputs.image }}
     steps:
+      - name: Runtime Security Agent (Cimon)
+        uses: cycodelabs/cimon-action@1374f7193c5a4390740fa451feb05ce812955958
+        with:
+          prevent: false
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
@@ -366,6 +372,10 @@ jobs:
       contents: read
       pull-requests: write
     steps:
+      - name: Runtime Security Agent (Cimon)
+        uses: cycodelabs/cimon-action@1374f7193c5a4390740fa451feb05ce812955958
+        with:
+          prevent: false
       - name: Download SARIF reports
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
