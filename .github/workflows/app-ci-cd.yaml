@@ -33,66 +33,61 @@ jobs:
       - name: Lint (Vet)
         run: go vet ./...
 
-  secret-scan:
-    name: Secret Scanning (Betterleaks)
+  security-scans:
+    name: Security Scans (Betterleaks, Semgrep, govulncheck)
     needs: build
     runs-on: ubuntu-latest
     permissions:
       contents: read
       security-events: write
+      actions: read # required by upload-sarif to look up workflow run info
+    outputs:
+      betterleaks_result: ${{ steps.betterleaks.outcome }}
+      semgrep_result: ${{ steps.semgrep.outcome }}
+      govulncheck_result: ${{ steps.govulncheck.outcome }}
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           fetch-depth: 0
-      - name: Run Betterleaks
-        run: |
-          docker run --rm -v "$PWD:/repo" -w /repo ghcr.io/betterleaks/betterleaks@sha256:8b9d12db5e11ca798029da44923503de5d8cfff6992cffaaa6722fbeb9fc7797 \
-            dir . --report-path betterleaks.sarif --report-format sarif
-      - name: Upload SARIF to Security tab
-        uses: github/codeql-action/upload-sarif@faaca9a8f6edddba5725ffe5adefdab6669a2eca # v3.38.0
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version: stable # govulncheck requires a newer toolchain than the app's go 1.19
+      - name: Install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+
+      - parallel:
+          - name: Run Betterleaks
+            id: betterleaks
+            run: |
+              docker run --rm -v "$PWD:/repo" -w /repo ghcr.io/betterleaks/betterleaks@sha256:8b9d12db5e11ca798029da44923503de5d8cfff6992cffaaa6722fbeb9fc7797 \
+                dir . --report-path betterleaks.sarif --report-format sarif
+          - name: Run Semgrep
+            id: semgrep
+            run: |
+              docker run --rm -v "$PWD:/src" returntocorp/semgrep@sha256:34ab619bf1391a24bfda3f05debd0d8a6ce3093c2d5f9d39cfc00f83c1397823 semgrep scan \
+                --config=auto --sarif -o /src/semgrep.sarif --error || true
+          - name: Run govulncheck
+            id: govulncheck
+            run: govulncheck -json ./... | tee govulncheck.json || true
+
+      - name: Upload Betterleaks SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4.38.0
         with:
           sarif_file: betterleaks.sarif
           category: betterleaks
 
-  sast-scan:
-    name: SAST (Semgrep OSS)
-    needs: build
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      security-events: write
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-      - name: Run Semgrep
-        run: |
-          docker run --rm -v "$PWD:/src" returntocorp/semgrep@sha256:34ab619bf1391a24bfda3f05debd0d8a6ce3093c2d5f9d39cfc00f83c1397823 semgrep scan \
-            --config=auto --sarif -o /src/semgrep.sarif --error || true
-      - name: Upload SARIF to Security tab
-        uses: github/codeql-action/upload-sarif@faaca9a8f6edddba5725ffe5adefdab6669a2eca # v3.38.0
+      - name: Upload Semgrep SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4.38.0
         with:
           sarif_file: semgrep.sarif
           category: semgrep
 
-  sca-scan:
-    name: Dependency Scan (govulncheck)
-    needs: build
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
-        with:
-          go-version: 1.19
-      - name: Install govulncheck
-        run: go install golang.org/x/vuln/cmd/govulncheck@latest
-      - name: Run govulncheck
-        run: govulncheck -json ./... | tee govulncheck.json || true
       - name: Upload govulncheck report
+        if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: govulncheck-report
@@ -100,7 +95,7 @@ jobs:
 
   security-report:
     name: Report Security Results
-    needs: [secret-scan, sast-scan, sca-scan]
+    needs: security-scans
     if: always() && github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     permissions:
@@ -111,9 +106,9 @@ jobs:
         with:
           script: |
             const results = {
-              "Betterleaks (secrets)": "${{ needs.secret-scan.result }}",
-              "Semgrep OSS (SAST)": "${{ needs.sast-scan.result }}",
-              "govulncheck (SCA)": "${{ needs.sca-scan.result }}",
+              "Betterleaks (secrets)": "${{ needs.security-scans.outputs.betterleaks_result }}",
+              "Semgrep OSS (SAST)": "${{ needs.security-scans.outputs.semgrep_result }}",
+              "govulncheck (SCA)": "${{ needs.security-scans.outputs.govulncheck_result }}",
             };
             const icon = r => r === "success" ? "✅" : r === "failure" ? "❌" : "⚠️";
             let body = "### 🔐 Security Scan Results\n\n| Check | Result |\n| --- | --- |\n";
@@ -130,11 +125,12 @@ jobs:
 
   containerize-scan-sign-push:
     name: Containerize
-    needs: [secret-scan, sast-scan, sca-scan]
+    needs: security-scans
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
+      actions: read # required by upload-sarif to look up workflow run info
       id-token: write # required for keyless Cosign signing via OIDC
     outputs:
       image: ${{ steps.meta.outputs.tags }}
@@ -174,7 +170,7 @@ jobs:
 
       - name: Upload Trivy SARIF
         if: always()
-        uses: github/codeql-action/upload-sarif@faaca9a8f6edddba5725ffe5adefdab6669a2eca # v3.38.0
+        uses: github/codeql-action/upload-sarif@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4.38.0
         with:
           sarif_file: trivy.sarif
           category: trivy
