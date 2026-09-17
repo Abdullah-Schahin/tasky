@@ -5,10 +5,10 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
     branches: [main]
-    paths: ["**.go", "Dockerfile", "wizexercise.txt"]
+    paths: ["**.go", "Dockerfile", "wizexercise.txt", ".github/workflows/app-ci-cd.yaml"]
   push:
     branches: [main]
-    paths: ["**.go", "Dockerfile", "wizexercise.txt"]
+    paths: ["**.go", "Dockerfile", "wizexercise.txt", ".github/workflows/app-ci-cd.yaml"]
 
 env:
   REGISTRY: ghcr.io
