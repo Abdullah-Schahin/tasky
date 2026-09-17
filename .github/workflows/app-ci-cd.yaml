@@ -197,8 +197,13 @@ jobs:
 
       - name: Sign image (keyless via GitHub OIDC)
         if: success() && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
+        shell: bash
+        env:
+          IMAGE_DIGEST: ${{ steps.push.outputs.digest }}
         run: |
-          cosign sign --yes "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.push.outputs.digest }}"
+          # Match the lowercase repository name produced by docker/metadata-action.
+          image_name=$(printf '%s' "$IMAGE_NAME" | tr '[:upper:]' '[:lower:]')
+          cosign sign --yes "${REGISTRY}/${image_name}@${IMAGE_DIGEST}"
 
   #deploy-to-eks:
   #  name: Deploy to EKS
