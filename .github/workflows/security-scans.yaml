@@ -415,7 +415,7 @@ jobs:
     steps: *comment-steps
 
   trivy-infra:
-    name: Trivy infrastructure scan
+    name: Trivy TF scan
     needs: validate
     if: inputs.trivy-infra
     runs-on: ubuntu-latest

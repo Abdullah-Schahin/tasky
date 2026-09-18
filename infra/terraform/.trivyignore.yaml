@@ -1,0 +1,26 @@
+# Only exercise-required weaknesses. Do not suppress whole files or severity levels.
+#misconfigurations:
+#  - id: AVD-AWS-0107
+#    paths: [mongodb.tf]
+#    statement: Exercise explicitly requires MongoDB VM SSH open to the internet; key-only auth retained.
+#    expired_at: 2026-12-31
+#  - id: AVD-AWS-0087
+#    paths: [s3-backup.tf]
+#    statement: Exercise backup bucket must allow a public read/list policy; ACLs remain blocked.
+#    expired_at: 2026-12-31
+#  - id: AVD-AWS-0093
+#    paths: [s3-backup.tf]
+#    statement: Exercise requires anonymous read/list; no public writes are granted.
+#    expired_at: 2026-12-31
+#  - id: AVD-AWS-0090
+#    paths: [s3-backup.tf]
+#    statement: Backup versioning is an explicit exercise governance gap.
+#    expired_at: 2026-12-31
+#  - id: AVD-AWS-0178
+#    paths: [network.tf]
+#    statement: VPC Flow Logs intentionally omitted for the exercise.
+#    expired_at: 2026-12-31
+#  - id: AVD-AWS-0132
+#    paths: [s3-backup.tf]
+#    statement: Exercise backup uses SSE-S3, not customer-managed KMS; audit bucket is not exempted.
+#    expired_at: 2026-12-31
