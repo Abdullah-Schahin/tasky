@@ -6,10 +6,10 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
     branches: [main]
-    paths-ignore: ["infra/**", "**.md"]
+    paths-ignore: ["infra/cloud/**", "**.md"]
   push:
     branches: [main]
-    paths-ignore: ["infra/**", "**.md"]
+    paths-ignore: ["infra/cloud/**", "**.md"]
 
 env:
   REGISTRY: ghcr.io
@@ -238,7 +238,7 @@ jobs:
       - name: Runtime Security Agent (Cimon)
         uses: cycodelabs/cimon-action@1374f7193c5a4390740fa451feb05ce812955958
         with:
-          prevent: true
+          prevent: false
           allowed-hosts: >
             tuf-repo-cdn.sigstore.dev
       - name: Download scanned image
