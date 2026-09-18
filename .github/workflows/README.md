@@ -1,31 +1,91 @@
-What I implemented in the CICD is:
-- I made sure to balance security and dev exprince
-- I made sure to run things in parallel where applies and fails fast to not wast dev time
-- I chained enough Security tools to make sure the code is secure before it reaches runtime
+# CI/CD and reusable security scans
 
-## Release evidence and deployment
+`app-ci-cd.yaml` owns app build, Minikube tests, container build/evidence, and publishing.
+`security-scans.yaml` is a reusable `workflow_call` workflow owning scanner execution,
+report artifacts, per-scanner PR comments, and the selected-scanner failure gate.
+PR comments run in isolated jobs in the same workflow without checking out or executing
+repository code. The four comment jobs share their steps through a YAML anchor.
 
-`app-ci-cd.yaml` builds once, scans the image archive, and generates an SPDX JSON
-SBOM with Trivy. It records workflow-generated SLSA v1 provenance containing the
-source commit, workflow run, BuildKit metadata and scanned archive checksum.
-This is an attested build record, not a claim of independently certified SLSA level.
-The publishing job verifies archive/evidence checksums and uses Cosign keyless
-signing to attach the image signature, SBOM and provenance to the pushed digest.
+The app calls security scans twice:
 
-`verify-release` requires all three signatures from this repository's
-`.github/workflows/app-ci-cd.yaml` on `refs/heads/main`, issued by
-`https://token.actions.githubusercontent.com`, for the current commit. It also
-checks the signed provenance's source repository, commit, ref and builder.
-A missing/invalid attestation or a mismatched identity fails the job.
+1. `source-security` after Minikube tests: TruffleHog, Bearer, and govulncheck.
+2. `image-security` after container build: Trivy against the uploaded image archive.
 
-EKS deployment is opt-in: set repository variable `ENABLE_EKS_DEPLOY=true` and
-configure `AWS_DEPLOY_ROLE_ARN`, `AWS_REGION`, and `EKS_CLUSTER_NAME`. Configure
-any desired approval rules on the `production` environment. The cluster needs
-the `tasky` namespace, `tasky-secrets`, and GHCR pull credentials if the image is
-private. Deployment depends on successful verification and uses the verified
-image digest; the placeholder image tag is replaced locally before applying.
+Container building waits for source scans; publishing/signing waits for the image scan.
+The image is built once for release. Its archive checksum is checked by both Trivy's job
+and publishing. SBOM/provenance are generated alongside the candidate archive before
+scanning; nothing is pushed or signed unless the security gates pass. The Minikube test
+builds a separate development image from the same checkout.
 
-This gate protects this workflow's deployment path. It is not a cluster admission
-policy: users with direct Kubernetes write access can bypass it. The separate
-legacy `build-and-publish.yml` workflow does not produce these release attestations
-and its images will not satisfy this gate.
+## Plug scanning into another pipeline
+
+Call the shared workflow as a job, not a step:
+
+```yaml
+jobs:
+  security:
+    uses: ./.github/workflows/security-scans.yaml
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: write
+    with:
+      report-prefix: terraform
+      trufflehog: true
+      working-directory: infra/terraform
+```
+
+This example enables secret scanning only; it does not claim to scan Terraform
+misconfigurations. Add future Terraform/Kubernetes scanners to `security-scans.yaml`,
+the selected-scanner gate, and the shared report formatter/reporter. Their calling
+pipelines can then opt in without copying scanner implementations. Those CI/CD workflows
+do not exist yet in the current repository.
+
+| Input | Default | Purpose |
+| --- | --- | --- |
+| `report-prefix` | Required | Unique lowercase name per call in a run, e.g. `app-source`, `app-image`, `terraform`, `kubernetes` |
+| `trufflehog`, `bearer`, `govulncheck`, `trivy` | `false` | Select scanners; at least one must be enabled |
+| `working-directory` | `.` | Bearer and govulncheck scan path; TruffleHog scans the Git commit range |
+| `image-artifact-id` | Empty | Required by Trivy; artifact in this run containing `tasky-image.tar` |
+| `image-sha256` | Empty | Required by Trivy; expected SHA256 of the archive |
+| `trivy-severity` | `CRITICAL` | Blocking container vulnerability severities |
+| `comment-on-pr` | `true` | Post per-scanner comments on same-repository PRs |
+
+Each selected scanner must succeed. Disabled scanners may skip; a selected scanner
+that fails, is cancelled, or skips fails the final gate. Bearer retains the exercise's
+advisory `exit-code: 0` policy. No secrets inheritance is needed. The caller grants the
+permission ceiling shown above; scanner jobs explicitly restrict their own permissions
+to read-only. Only isolated comment jobs request PR write permission.
+
+## Reports and fork PRs
+
+Each scanner's comment job starts when that scanner completes, including failure; it
+does not wait for the other scanners or pipeline stages. Reports include outcome,
+rule/detector IDs, locations or modules, and a workflow link. Artifact names and comment
+markers include `report-prefix` to avoid collisions between calls in the same run.
+There is one comment per prefix/scanner/run, updated on reruns.
+
+TruffleHog raw output is temporarily captured and deleted after summary generation.
+Only detector, verification status and file/line metadata are published, never Raw,
+RawV2, Redacted, ExtraData, or source snippets. Missing reports produce a fallback
+status comment. Summaries show up to 50 findings; Bearer/Trivy SARIF and govulncheck JSON
+remain available as artifacts. Fork PRs get summaries/artifacts without PR comments;
+no elevated `pull_request_target` workflow is used.
+
+## Minikube test
+
+The app test starts an isolated `tasky-ci` profile on Ubuntu 24.04 and invokes
+`infra/local/deploy-minikube.py`. It runs `tests/todo-roundtrip.js` via `mongosh` in
+the MongoDB pod. Deployment/test failures block subsequent stages and cleanup always
+runs. The test covers API/database CRUD and reload persistence, not browser or ingress
+behavior. Infrastructure changes also trigger the app pipeline.
+
+## Validation and required checks
+
+```sh
+python3 -m unittest discover -s tests -p 'test_security_reporting.py'
+```
+
+Reusable jobs change the displayed check names. Update branch protection/rulesets to
+require the appropriate `Source security` and `Image security` nested gate checks after
+the first GitHub run. Local validation does not post comments or trigger workflows.

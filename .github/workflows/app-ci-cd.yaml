@@ -1,5 +1,5 @@
 name: App CI/CD
-description: CI/CD pipeline for the Go application E2E
+description: CI/CD workflow for building, testing, and containerizing the Tasky app.
 
 on:
   workflow_dispatch: {}
@@ -20,7 +20,7 @@ permissions:
 
 jobs:
   build:
-    name: Build Go Application
+    name: Build App
     runs-on: ubuntu-latest
     steps:
       - name: Runtime Security Agent (Cimon)
@@ -42,80 +42,68 @@ jobs:
       - name: Lint (Vet)
         run: go vet ./...
 
-  security-scans:
-    name: Security Scans
+  test:
+    name: Test App
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
     permissions:
       contents: read
-    outputs:
-      trufflehog_result: ${{ steps.trufflehog.outcome }}
-      bearer_result: ${{ steps.bearer.outcome }}
-      govulncheck_result: ${{ steps.govulncheck.outcome }}
+    defaults:
+      run:
+        shell: bash
     steps:
       - name: Runtime Security Agent (Cimon)
         uses: cycodelabs/cimon-action@1374f7193c5a4390740fa451feb05ce812955958
         with:
           prevent: true
-          allowed-hosts: >
-            proxy.golang.org
-            sum.golang.org
-            vuln.go.dev
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
-          fetch-depth: 0
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
-        with:
-          go-version: stable # govulncheck requires a newer toolchain than the app's go 1.19
-      - name: Install govulncheck
-        run: go install golang.org/x/vuln/cmd/govulncheck@latest
-
-      - parallel:
-          - name: Run TruffleHog
-            id: trufflehog
-            uses: trufflesecurity/trufflehog@288a8a8643a2c5a36b81d231c550dccfa0beeb64 # main
-            with:
-              extra_args: --results=verified,unknown
-          - name: Run Bearer
-            id: bearer
-            uses: bearer/bearer-action@828eeb928ce2f4a7ca5ed57fb8b59508cb8c79bc # v2
-            with:
-              path: "."
-              scanner: sast
-              format: sarif
-              output: bearer.sarif
-              exit-code: 0 # PSE: In real project this scanner should block CI on findings
-          - name: Run govulncheck
-            id: govulncheck
-            shell: bash
-            run: |
-              # JSON mode produces a report but does not fail on vulnerability findings.
-              govulncheck -json ./... > govulncheck.json
-              # Text mode fails the job when reachable vulnerabilities are found.
-              govulncheck ./...
-
-      - name: Upload Bearer SARIF artifact
+      # These tools are included in the GitHub-hosted Ubuntu 24.04 image.
+      - name: Check cluster tooling
+        run: |
+          docker info > /dev/null
+          minikube version
+          kubectl version --client
+          helm version --short
+      - name: Start Minikube and deploy Tasky with Helm
+        run: python3 infra/local/deploy-minikube.py --profile tasky-ci --driver docker --memory 4096 --cpus 2
+      - name: Test todo persistence and CRUD
+        timeout-minutes: 5
+        run: |
+          kubectl --context tasky-ci -n tasky exec -i deployment/tasky-mongo -- \
+            mongosh --quiet --file /dev/stdin < tests/todo-roundtrip.js
+      - name: Show cluster state on failure
+        if: failure()
+        timeout-minutes: 2
+        run: |
+          # Avoid application logs: startup logging includes the MongoDB URI.
+          kubectl --context tasky-ci -n tasky get pods,deployments,services,ingress,pvc -o wide
+          kubectl --context tasky-ci -n tasky get events --sort-by=.metadata.creationTimestamp
+      - name: Delete test cluster
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: bearer-sarif
-          path: bearer.sarif
-          retention-days: 7
+        timeout-minutes: 3
+        run: minikube -p tasky-ci delete
 
-      - name: Upload govulncheck report
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: govulncheck-report
-          path: govulncheck.json
-          retention-days: 7
+  source-security:
+    name: Source security
+    needs: test
+    uses: ./.github/workflows/security-scans.yaml
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: write
+    with:
+      report-prefix: app-source
+      trufflehog: true
+      bearer: true
+      govulncheck: true
 
-  containerize-scan:
+  containerize:
     name: Containerize
-    needs: security-scans
+    needs: source-security
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -128,7 +116,7 @@ jobs:
       - name: Runtime Security Agent (Cimon)
         uses: cycodelabs/cimon-action@1374f7193c5a4390740fa451feb05ce812955958
         with:
-          prevent: false
+          prevent: true
           allowed-hosts: >
             cgr.dev
             mirror.gcr.io
@@ -177,31 +165,12 @@ jobs:
           archive_sha256=$(sha256sum "$RUNNER_TEMP/tasky-image.tar" | cut -d ' ' -f 1)
           echo "sha256=$archive_sha256" >> "$GITHUB_OUTPUT"
 
-      - name: Scan image with Trivy
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
-        with:
-          input: ${{ runner.temp }}/tasky-image.tar
-          format: sarif
-          output: trivy.sarif
-          severity: CRITICAL # PSE: For Demo only, in normal case I'd go with H,C
-          limit-severities-for-sarif: true
-          exit-code: "1"
-
-      - name: Upload Trivy SARIF artifact
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: trivy-sarif
-          path: trivy.sarif
-          retention-days: 7
-
-      - name: Generate SPDX SBOM from scanned image
+      - name: Generate SPDX SBOM from candidate image
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           input: ${{ runner.temp }}/tasky-image.tar
           format: spdx-json
           output: ${{ runner.temp }}/sbom.spdx.json
-          skip-setup-trivy: true
 
       - name: Record build provenance and evidence checksums
         id: evidence
@@ -234,12 +203,11 @@ jobs:
           sha256sum sbom.spdx.json provenance.json > evidence.sha256
           echo "sha256=$(sha256sum evidence.sha256 | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
 
-      - name: Upload scanned image
+      - name: Upload candidate image for scanning and publishing
         id: upload-image
-        if: success() && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: scanned-image
+          name: candidate-image
           path: |
             ${{ runner.temp }}/tasky-image.tar
             ${{ runner.temp }}/sbom.spdx.json
@@ -249,9 +217,24 @@ jobs:
           compression-level: 0
           retention-days: 1
 
+  image-security:
+    name: Image security
+    needs: containerize
+    uses: ./.github/workflows/security-scans.yaml
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: write
+    with:
+      report-prefix: app-image
+      trivy: true
+      image-artifact-id: ${{ needs.containerize.outputs.artifact-id }}
+      image-sha256: ${{ needs.containerize.outputs.archive-sha256 }}
+      trivy-severity: CRITICAL
+
   publish-sign:
     name: Publish and Sign
-    needs: containerize-scan
+    needs: [containerize, image-security]
     if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
@@ -259,25 +242,25 @@ jobs:
       packages: write
       id-token: write
     outputs:
-      image: ${{ needs.containerize-scan.outputs.image }}
+      image: ${{ needs.containerize.outputs.image }}
       digest: ${{ steps.push.outputs.digest }}
     steps:
       - name: Runtime Security Agent (Cimon)
         uses: cycodelabs/cimon-action@1374f7193c5a4390740fa451feb05ce812955958
         with:
-          prevent: false
+          prevent: true
       - name: Download scanned image
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          artifact-ids: ${{ needs.containerize-scan.outputs.artifact-id }}
+          artifact-ids: ${{ needs.containerize.outputs.artifact-id }}
           path: ${{ runner.temp }}/scanned-image
           merge-multiple: true
 
       - name: Verify and load scanned image
         shell: bash
         env:
-          ARCHIVE_SHA256: ${{ needs.containerize-scan.outputs.archive-sha256 }}
-          EVIDENCE_SHA256: ${{ needs.containerize-scan.outputs.evidence-sha256 }}
+          ARCHIVE_SHA256: ${{ needs.containerize.outputs.archive-sha256 }}
+          EVIDENCE_SHA256: ${{ needs.containerize.outputs.evidence-sha256 }}
         run: |
           [[ "$ARCHIVE_SHA256" =~ ^[a-f0-9]{64}$ ]] || exit 1
           printf '%s  %s\n' "$ARCHIVE_SHA256" "$RUNNER_TEMP/scanned-image/tasky-image.tar" | sha256sum --check --strict
@@ -298,7 +281,7 @@ jobs:
         id: push
         shell: bash
         env:
-          IMAGE_REF: ${{ needs.containerize-scan.outputs.image }}
+          IMAGE_REF: ${{ needs.containerize.outputs.image }}
         run: |
           docker image push "$IMAGE_REF"
           digest=$(docker image inspect "$IMAGE_REF" --format '{{json .RepoDigests}}' |
@@ -329,40 +312,3 @@ jobs:
           cosign attest --yes --type slsaprovenance1 --predicate "$RUNNER_TEMP/scanned-image/provenance.json" "$image"
 
   ### Once could also verify the release identity and attestations using Cosign.
-
-  report-security:
-    name: Comment on Security Reports
-    needs: [security-scans, containerize-scan]
-    # Fork PRs retain report artifacts but cannot use a write token for comments.
-    if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: write
-    steps:
-      - name: Runtime Security Agent (Cimon)
-        uses: cycodelabs/cimon-action@1374f7193c5a4390740fa451feb05ce812955958
-        with:
-          prevent: false
-      - name: Download SARIF reports
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          pattern: "*-sarif"
-          path: reports
-          merge-multiple: true
-
-      - name: Post Bearer SARIF to PR
-        if: hashFiles('reports/bearer.sarif') != ''
-        uses: falc0nTech/SARIFCourier@5f5e90a6efcfb9eb8740b71243e4aad9b4e1398a # v1.0.13
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          sarif_file: reports/bearer.sarif
-
-      - name: Post Trivy SARIF to PR
-        if: hashFiles('reports/trivy.sarif') != ''
-        uses: falc0nTech/SARIFCourier@5f5e90a6efcfb9eb8740b71243e4aad9b4e1398a # v1.0.13
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          sarif_file: reports/trivy.sarif

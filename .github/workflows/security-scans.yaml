@@ -1,0 +1,430 @@
+name: Security Scans
+description: Reusable security scans workflow for TruffleHog, Bearer, govulncheck, and Trivy.
+
+on:
+  workflow_call:
+    inputs:
+      report-prefix:
+        description: Unique identifier for this call within the caller run (e.g. app-source, tf).
+        required: true
+        type: string
+      trufflehog:
+        type: boolean
+        default: false
+      bearer:
+        type: boolean
+        default: false
+      govulncheck:
+        type: boolean
+        default: false
+      trivy:
+        type: boolean
+        default: false
+      working-directory:
+        description: Source directory for Bearer and govulncheck; TruffleHog scans the Git commit range.
+        type: string
+        default: .
+      image-artifact-id:
+        description: Artifact in this run containing tasky-image.tar.
+        type: string
+        default: ""
+      image-sha256:
+        description: Expected SHA256 of tasky-image.tar from the build job.
+        type: string
+        default: ""
+      trivy-severity:
+        type: string
+        default: CRITICAL
+      comment-on-pr:
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Runtime Security Agent (Cimon)
+        uses: cycodelabs/cimon-action@1374f7193c5a4390740fa451feb05ce812955958
+        with:
+          prevent: true
+      - name: Validate scanner selection and report identity
+        env:
+          INPUTS_JSON: ${{ toJSON(inputs) }}
+        run: |
+          python3 - <<'PYTHON'
+          import json, os, re
+          i = json.loads(os.environ['INPUTS_JSON'])
+          assert re.fullmatch(r'[a-z0-9-]{1,50}', i['report-prefix']), 'Invalid report-prefix'
+          assert any(i[s] for s in ('trufflehog', 'bearer', 'govulncheck', 'trivy')), 'Enable at least one scanner'
+          if i['trivy']:
+              assert i['image-artifact-id'].isdigit(), 'Trivy requires an artifact ID'
+              assert re.fullmatch(r'[a-f0-9]{64}', i['image-sha256']), 'Trivy requires the archive SHA256'
+          PYTHON
+
+  trufflehog:
+    if: inputs.trufflehog
+    name: TruffleHog
+    needs: validate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Runtime Security Agent (Cimon)
+        uses: cycodelabs/cimon-action@1374f7193c5a4390740fa451feb05ce812955958
+        with:
+          prevent: true
+          allowed-hosts: >
+            proxy.golang.org
+            sum.golang.org
+            vuln.go.dev
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Scan for secrets
+        id: scan
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          # Match the upstream action's CLI; capture raw output only in temporary files.
+          # The upstream action also defaults to this image's latest tag.
+          umask 077
+          args=(git file:///repo --branch "$HEAD_SHA" --results=verified,unknown --fail --fail-on-scan-errors --no-update --json)
+          if [[ -n "$BASE_SHA" && "$BASE_SHA" != "0000000000000000000000000000000000000000" ]]; then
+            args+=(--since-commit "$BASE_SHA")
+          fi
+          set +e
+          docker run --rm -v "$GITHUB_WORKSPACE:/repo:ro" \
+            ghcr.io/trufflesecurity/trufflehog:latest "${args[@]}" \
+            > "$RUNNER_TEMP/trufflehog.jsonl" 2> "$RUNNER_TEMP/trufflehog.stderr"
+          code=$?
+          set -e
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          exit "$code"
+      - name: Prepare trufflehog summary
+        if: always()
+        env:
+          SCAN_OUTCOME: ${{ steps.scan.outcome }}
+          SCAN_EXIT_CODE: ${{ steps.scan.outputs.exit_code }}
+        run: python3 .github/scripts/security-summary.py trufflehog "$RUNNER_TEMP/trufflehog.jsonl" report.md
+      - name: Upload trufflehog summary
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ inputs.report-prefix }}-trufflehog-summary
+          path: report.md
+          if-no-files-found: error
+          retention-days: 7
+      - name: Remove raw secret scan output
+        if: always()
+        run: rm -f "$RUNNER_TEMP/trufflehog.jsonl" "$RUNNER_TEMP/trufflehog.stderr"
+
+  report-trufflehog:
+    name: Comment trufflehog results
+    needs: trufflehog
+    if: always() && inputs.comment-on-pr && needs.trufflehog.result != 'skipped' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: write
+    runs-on: ubuntu-latest
+    env:
+      SCANNER: trufflehog
+      RESULT: ${{ needs.trufflehog.result }}
+    # Shared steps; no checkout or execution of repository/artifact code.
+    steps:
+      - name: Runtime Security Agent (Cimon)
+        uses: cycodelabs/cimon-action@1374f7193c5a4390740fa451feb05ce812955958
+        with:
+          prevent: true
+      - name: Download scanner summary
+        continue-on-error: true # Still post the failure status if report generation failed.
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ inputs.report-prefix }}-${{ env.SCANNER }}-summary
+          path: report
+      - name: Comment scanner result immediately
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPORT_PREFIX: ${{ inputs.report-prefix }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib, re, urllib.request
+          e = os.environ
+          scanner = e['SCANNER']
+          assert re.fullmatch(r'[a-z0-9-]{1,50}', e['REPORT_PREFIX'])
+          assert scanner in ('trufflehog', 'bearer', 'govulncheck', 'trivy')
+          assert e['PR_NUMBER'].isdigit()
+          url = f"{e['GITHUB_SERVER_URL']}/{e['GITHUB_REPOSITORY']}/actions/runs/{e['GITHUB_RUN_ID']}"
+          marker = f"<!-- security-report:{e['REPORT_PREFIX']}:{scanner}:{e['GITHUB_RUN_ID']} -->"
+          path = pathlib.Path('report/report.md')
+          report = path.read_text()[:50000] if path.is_file() else f"## {scanner} security report\n\nReport unavailable; scanner job: **{e['RESULT']}**. Check the run for setup or scanner errors."
+          body = f"{marker}\n{report}\n\nJob result: **{e['RESULT']}**. [View workflow run]({url})\nCommit: `{e['GITHUB_SHA']}`"
+          base = f"{e['GITHUB_API_URL']}/repos/{e['GITHUB_REPOSITORY']}"
+          def api(method, endpoint, data=None):
+              request = urllib.request.Request(base + endpoint, method=method,
+                  data=json.dumps(data).encode() if data is not None else None,
+                  headers={'Authorization': 'Bearer ' + e['GH_TOKEN'],
+                           'Accept': 'application/vnd.github+json', 'Content-Type': 'application/json'})
+              with urllib.request.urlopen(request, timeout=30) as response:
+                  return json.load(response)
+          endpoint = f"/issues/{e['PR_NUMBER']}/comments"
+          existing = None
+          page = 1
+          while True:
+              comments = api('GET', endpoint + f'?per_page=100&page={page}')
+              existing = next((c for c in comments if c['user']['login'] == 'github-actions[bot]' and marker in c.get('body', '')), None)
+              if existing or len(comments) < 100:
+                  break
+              page += 1
+          if existing:
+              api('PATCH', f"/issues/comments/{existing['id']}", {'body': body})
+          else:
+              api('POST', endpoint, {'body': body})
+          PY
+
+  bearer:
+    if: inputs.bearer
+    name: Bearer
+    needs: validate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps: &comment-steps
+      - name: Runtime Security Agent (Cimon)
+        uses: cycodelabs/cimon-action@1374f7193c5a4390740fa451feb05ce812955958
+        with:
+          prevent: true
+          allowed-hosts: >
+            proxy.golang.org
+            sum.golang.org
+            vuln.go.dev
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Run Bearer
+        id: scan
+        uses: bearer/bearer-action@828eeb928ce2f4a7ca5ed57fb8b59508cb8c79bc # v2
+        with:
+          path: ${{ inputs.working-directory }}
+          scanner: sast
+          format: sarif
+          output: bearer.sarif
+          exit-code: 0 # PSE: advisory findings for the exercise
+      - name: Prepare bearer summary
+        if: always()
+        env:
+          SCAN_OUTCOME: ${{ steps.scan.outcome }}
+          SCAN_EXIT_CODE: ${{ steps.scan.outputs.exit_code }}
+        run: python3 .github/scripts/security-summary.py bearer "bearer.sarif" report.md
+      - name: Upload bearer summary
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ inputs.report-prefix }}-bearer-summary
+          path: report.md
+          if-no-files-found: error
+          retention-days: 7
+      - name: Upload Bearer SARIF
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ inputs.report-prefix }}-bearer-sarif
+          path: bearer.sarif
+          retention-days: 7
+
+  report-bearer:
+    name: Comment bearer results
+    needs: bearer
+    if: always() && inputs.comment-on-pr && needs.bearer.result != 'skipped' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: write
+    runs-on: ubuntu-latest
+    env:
+      SCANNER: bearer
+      RESULT: ${{ needs.bearer.result }}
+    steps: *comment-steps
+
+  govulncheck:
+    if: inputs.govulncheck
+    name: govulncheck
+    needs: validate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Runtime Security Agent (Cimon)
+        uses: cycodelabs/cimon-action@1374f7193c5a4390740fa451feb05ce812955958
+        with:
+          prevent: true
+          allowed-hosts: >
+            proxy.golang.org
+            sum.golang.org
+            vuln.go.dev
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version: stable
+      - name: Install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+      - name: Run govulncheck
+        id: scan
+        working-directory: ${{ inputs.working-directory }}
+        run: |
+          govulncheck -json ./... > "$GITHUB_WORKSPACE/govulncheck.json"
+          govulncheck ./...
+      - name: Prepare govulncheck summary
+        if: always()
+        env:
+          SCAN_OUTCOME: ${{ steps.scan.outcome }}
+          SCAN_EXIT_CODE: ${{ steps.scan.outputs.exit_code }}
+        run: python3 .github/scripts/security-summary.py govulncheck "govulncheck.json" report.md
+      - name: Upload govulncheck summary
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ inputs.report-prefix }}-govulncheck-summary
+          path: report.md
+          if-no-files-found: error
+          retention-days: 7
+      - name: Upload govulncheck report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ inputs.report-prefix }}-govulncheck-report
+          path: govulncheck.json
+          retention-days: 7
+
+  report-govulncheck:
+    name: Comment govulncheck results
+    needs: govulncheck
+    if: always() && inputs.comment-on-pr && needs.govulncheck.result != 'skipped' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: write
+    runs-on: ubuntu-latest
+    env:
+      SCANNER: govulncheck
+      RESULT: ${{ needs.govulncheck.result }}
+    steps: *comment-steps
+
+  trivy:
+    name: Trivy image scan
+    needs: validate
+    if: inputs.trivy
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Runtime Security Agent (Cimon)
+        uses: cycodelabs/cimon-action@1374f7193c5a4390740fa451feb05ce812955958
+        with:
+          prevent: true
+          allowed-hosts: >
+            check.trivy.dev
+      - name: Checkout report formatter
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Download candidate image
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          artifact-ids: ${{ inputs.image-artifact-id }}
+          path: ${{ runner.temp }}/scan-image
+          merge-multiple: true
+      - name: Verify exact archive to scan
+        env:
+          ARCHIVE_SHA256: ${{ inputs.image-sha256 }}
+        run: |
+          [[ "$ARCHIVE_SHA256" =~ ^[a-f0-9]{64}$ ]] || exit 1
+          printf '%s  %s\n' "$ARCHIVE_SHA256" "$RUNNER_TEMP/scan-image/tasky-image.tar" | sha256sum --check --strict
+      - name: Scan image with Trivy
+        id: scan
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          input: ${{ runner.temp }}/scan-image/tasky-image.tar
+          format: sarif
+          output: trivy.sarif
+          severity: ${{ inputs.trivy-severity }}
+          limit-severities-for-sarif: true
+          exit-code: "1"
+
+      - name: Prepare trivy summary
+        if: always()
+        env:
+          SCAN_OUTCOME: ${{ steps.scan.outcome }}
+          SCAN_EXIT_CODE: ${{ steps.scan.outputs.exit_code }}
+        run: python3 .github/scripts/security-summary.py trivy "trivy.sarif" report.md
+      - name: Upload trivy summary
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ inputs.report-prefix }}-trivy-summary
+          path: report.md
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload Trivy SARIF artifact
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ inputs.report-prefix }}-trivy-sarif
+          path: trivy.sarif
+          retention-days: 7
+
+  report-trivy:
+    name: Comment trivy results
+    needs: trivy
+    if: always() && inputs.comment-on-pr && needs.trivy.result != 'skipped' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: write
+    runs-on: ubuntu-latest
+    env:
+      SCANNER: trivy
+      RESULT: ${{ needs.trivy.result }}
+    steps: *comment-steps
+
+  gate:
+    name: Selected scanners passed
+    if: always()
+    needs: [validate, trufflehog, bearer, govulncheck, trivy]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Runtime Security Agent (Cimon)
+        uses: cycodelabs/cimon-action@1374f7193c5a4390740fa451feb05ce812955958
+        with:
+          prevent: true
+      - name: Require all selected scanners to succeed
+        env:
+          INPUTS_JSON: ${{ toJSON(inputs) }}
+          RESULTS_JSON: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PYTHON'
+          import json, os
+          selected = json.loads(os.environ['INPUTS_JSON'])
+          results = json.loads(os.environ['RESULTS_JSON'])
+          required = ['validate'] + [s for s in ('trufflehog', 'bearer', 'govulncheck', 'trivy') if selected[s]]
+          failed = [s for s in required if results[s]['result'] != 'success']
+          if failed:
+              raise SystemExit('Security gate failed: ' + ', '.join(failed))
+          PYTHON
