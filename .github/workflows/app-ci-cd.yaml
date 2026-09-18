@@ -31,6 +31,8 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
+      - name: Check Docker base image SHA256 pins
+        run: python3 .github/scripts/check-image-pins.py Dockerfile
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
         with:
@@ -364,41 +366,3 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           sarif_file: reports/trivy.sarif
-# deploy-to-eks:
-#   name: Deploy Verified Image to EKS
-#   needs: verify-release
-#   if: github.ref == 'refs/heads/main' && vars.ENABLE_EKS_DEPLOY == 'true'
-#   runs-on: ubuntu-latest
-#   environment: production
-#   permissions:
-#     contents: read
-#     id-token: write
-#   steps:
-#     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-#       with:
-#         persist-credentials: false
-#     - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
-#       with:
-#         role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
-#         aws-region: ${{ vars.AWS_REGION }}
-#     - name: Deploy verified digest
-#       shell: bash
-#       env:
-#         IMAGE: ${{ needs.verify-release.outputs.image }}
-#         EKS_CLUSTER_NAME: ${{ vars.EKS_CLUSTER_NAME }}
-#         AWS_REGION: ${{ vars.AWS_REGION }}
-#         APP_HOST: ${{ vars.APP_HOST }}
-#         ACM_CERTIFICATE_ARN: ${{ vars.ACM_CERTIFICATE_ARN }}
-#         PUBLIC_SUBNET_IDS: ${{ vars.PUBLIC_SUBNET_IDS }}
-#         GHCR_PULL_SECRET: ${{ vars.GHCR_PULL_SECRET }}
-#       run: |
-#         [[ "$IMAGE" =~ @sha256:[a-f0-9]{64}$ ]] || exit 1
-#         aws eks update-kubeconfig --name "$EKS_CLUSTER_NAME" --region "$AWS_REGION"
-#         # Namespace and tasky-secrets must be bootstrapped before deployment.
-#         pull_args=()
-#         if [[ -n "$GHCR_PULL_SECRET" ]]; then pull_args+=(--pull-secret "$GHCR_PULL_SECRET"); fi
-#         python3 infra/k8s/render.py --image "$IMAGE" --host "$APP_HOST" \
-#           --certificate-arn "$ACM_CERTIFICATE_ARN" --public-subnets "$PUBLIC_SUBNET_IDS" \
-#           "${pull_args[@]}" > "$RUNNER_TEMP/tasky-manifests.yaml"
-#         kubectl apply -f "$RUNNER_TEMP/tasky-manifests.yaml"
-#         kubectl rollout status deployment/tasky -n tasky --timeout=120s
