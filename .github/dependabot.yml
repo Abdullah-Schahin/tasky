@@ -11,8 +11,7 @@ updates:
       default-days: 7
     open-pull-requests-limit: 10
     labels:
-      - "dependencies"
-      - "go"
+      - "dependencies-bump"
     groups:
       go-dependencies:
         patterns:
@@ -20,6 +19,8 @@ updates:
     commit-message:
       prefix: "chore(deps)"
 
+  # Update the latest tag digests while retaining immutable SHA256 pins.
+  # Public Chainguard images do not provide version-specific release tags.
   # Dockerfile base images
   - package-ecosystem: "docker"
     directory: "/"
@@ -28,10 +29,16 @@ updates:
       day: "monday"
     cooldown:
       default-days: 7
+    allow:
+      - dependency-name: "cgr.dev/chainguard/go"
+      - dependency-name: "cgr.dev/chainguard/wolfi-base"
+    groups:
+      docker-base-images:
+        patterns:
+          - "cgr.dev/chainguard/*"
     open-pull-requests-limit: 5
     labels:
-      - "dependencies"
-      - "docker"
+      - "dependencies-bump"
     commit-message:
       prefix: "chore(docker)"
 
@@ -45,8 +52,7 @@ updates:
       default-days: 7
     open-pull-requests-limit: 10
     labels:
-      - "dependencies"
-      - "github-actions"
+      - "dependencies-bump"
     groups:
       github-actions:
         patterns:

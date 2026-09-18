@@ -10,6 +10,7 @@ repos:
       - id: end-of-file-fixer
         entry: python3 .github/scripts/format-and-stage.py --fix-exit-one end-of-file-fixer --
       - id: check-yaml
+        exclude: ^infra/helm/tasky/templates/
         args: [--allow-multiple-documents]
       - id: check-json
       - id: check-merge-conflict
@@ -22,12 +23,18 @@ repos:
   - repo: local
     hooks:
       - id: format-yaml
+        exclude: ^infra/helm/tasky/templates/
         name: Format YAML and restage fixes
         entry: python3 .github/scripts/format-and-stage.py prettier --write --parser yaml --
         language: node
         additional_dependencies: [prettier@3.6.2]
         types: [yaml]
         require_serial: true
+      - id: docker-image-pins
+        name: Require Docker base image SHA256 pins
+        entry: python3 .github/scripts/check-image-pins.py
+        language: system
+        files: ^Dockerfile$
       - id: gofmt
         name: Format Go code
         entry: python3 .github/scripts/format-and-stage.py gofmt -w --
