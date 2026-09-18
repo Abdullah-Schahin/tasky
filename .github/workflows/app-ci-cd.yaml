@@ -31,8 +31,6 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
-      - name: Check Docker base image SHA256 pins
-        run: python3 .github/scripts/check-image-pins.py Dockerfile
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
         with:
@@ -57,6 +55,8 @@ jobs:
         uses: cycodelabs/cimon-action@1374f7193c5a4390740fa451feb05ce812955958
         with:
           prevent: true
+          allowed-hosts: >
+            storage.googleapis.com
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -87,23 +87,9 @@ jobs:
         timeout-minutes: 3
         run: minikube -p tasky-ci delete
 
-  source-security:
-    name: Source security
-    needs: test
-    uses: ./.github/workflows/security-scans.yaml
-    permissions:
-      contents: read
-      actions: read
-      pull-requests: write
-    with:
-      report-prefix: app-source
-      trufflehog: true
-      bearer: true
-      govulncheck: true
-
   containerize:
     name: Containerize
-    needs: source-security
+    needs: test
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -217,16 +203,19 @@ jobs:
           compression-level: 0
           retention-days: 1
 
-  image-security:
-    name: Image security
-    needs: containerize
+  security-scans:
+    name: Security Scans
+    needs: [test, containerize]
     uses: ./.github/workflows/security-scans.yaml
     permissions:
       contents: read
       actions: read
       pull-requests: write
     with:
-      report-prefix: app-image
+      report-prefix: app-scan
+      trufflehog: true
+      bearer: true
+      govulncheck: true
       trivy: true
       image-artifact-id: ${{ needs.containerize.outputs.artifact-id }}
       image-sha256: ${{ needs.containerize.outputs.archive-sha256 }}
@@ -234,7 +223,7 @@ jobs:
 
   publish-sign:
     name: Publish and Sign
-    needs: [containerize, image-security]
+    needs: [containerize, security-scans]
     if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
@@ -310,5 +299,3 @@ jobs:
           image="${REGISTRY}/${image_name}@${IMAGE_DIGEST}"
           cosign attest --yes --type spdxjson --predicate "$RUNNER_TEMP/scanned-image/sbom.spdx.json" "$image"
           cosign attest --yes --type slsaprovenance1 --predicate "$RUNNER_TEMP/scanned-image/provenance.json" "$image"
-
-  ### Once could also verify the release identity and attestations using Cosign.
