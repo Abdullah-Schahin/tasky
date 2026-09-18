@@ -1,0 +1,12 @@
+# Local development bypasses release signature verification.
+image:
+  reference: tasky-local:dev
+  pullPolicy: Never
+replicaCount: 1
+nodeSelector:
+  exercise.tasky.io/network: null
+ingress:
+  className: nginx
+  host: tasky.localhost
+mongo:
+  enabled: true

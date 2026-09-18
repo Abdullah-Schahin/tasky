@@ -1,0 +1,91 @@
+{{- if .Values.mongo.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: tasky-mongo-data
+  annotations:
+    helm.sh/resource-policy: keep
+  namespace: {{ .Release.Namespace }}
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: {{ .Values.mongo.storage }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mongo
+  namespace: {{ .Release.Namespace }}
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: tasky-mongo
+  ports:
+    - name: mongo
+      port: 27017
+      targetPort: mongo
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tasky-mongo
+  namespace: {{ .Release.Namespace }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: tasky-mongo
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: tasky-mongo
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: mongo
+          image: {{ .Values.mongo.image | quote }}
+          ports:
+            - name: mongo
+              containerPort: 27017
+          env:
+            # Local Docker Desktop kernel workaround (MongoDB SERVER-121912).
+            # Let glibc own rseq so TCMalloc falls back to per-thread caches.
+            - name: GLIBC_TUNABLES
+              value: glibc.pthread.rseq=1
+            - name: MONGO_INITDB_ROOT_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.mongo.existingSecret }}
+                  key: username
+            - name: MONGO_INITDB_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.mongo.existingSecret }}
+                  key: password
+          volumeMounts:
+            - name: data
+              mountPath: /data/db
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          startupProbe:
+            tcpSocket:
+              port: mongo
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            tcpSocket:
+              port: mongo
+            periodSeconds: 5
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: tasky-mongo-data
+{{- end }}

@@ -1,0 +1,124 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": [
+    "image",
+    "ingress"
+  ],
+  "properties": {
+    "image": {
+      "type": "object",
+      "required": [
+        "reference"
+      ],
+      "properties": {
+        "reference": {
+          "type": "string",
+          "minLength": 1
+        },
+        "pullPolicy": {
+          "enum": [
+            "Always",
+            "IfNotPresent",
+            "Never"
+          ]
+        }
+      }
+    },
+    "ingress": {
+      "type": "object",
+      "required": [
+        "className",
+        "host"
+      ],
+      "properties": {
+        "className": {
+          "enum": [
+            "alb",
+            "nginx"
+          ]
+        },
+        "host": {
+          "type": "string",
+          "maxLength": 253,
+          "pattern": "^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$"
+        },
+        "certificateArn": {
+          "type": "string"
+        },
+        "publicSubnets": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^subnet-([a-f0-9]{8}|[a-f0-9]{17})$"
+          }
+        }
+      }
+    },
+    "imagePullSecrets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "replicaCount": {
+      "type": "integer",
+      "minimum": 1
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "ingress": {
+            "properties": {
+              "className": {
+                "const": "alb"
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "image": {
+            "properties": {
+              "reference": {
+                "pattern": "^[a-z0-9./_-]+@sha256:[a-f0-9]{64}$"
+              }
+            }
+          },
+          "ingress": {
+            "required": [
+              "certificateArn",
+              "publicSubnets"
+            ],
+            "properties": {
+              "host": {
+                "not": {
+                  "pattern": "\\.invalid$"
+                }
+              },
+              "certificateArn": {
+                "pattern": "^arn:aws(-us-gov|-cn)?:acm:[a-z0-9-]+:[0-9]{12}:certificate/[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$"
+              },
+              "publicSubnets": {
+                "minItems": 2
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

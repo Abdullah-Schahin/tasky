@@ -1,0 +1,10 @@
+# Replace placeholders before rendering/deploying. No credentials belong here.
+# Supply image.reference via --set-string using a verified release digest.
+ingress:
+  className: alb
+  host: tasky.example.invalid
+  certificateArn: REPLACE_WITH_ACM_CERTIFICATE_ARN
+  publicSubnets:
+    - REPLACE_WITH_PUBLIC_SUBNET_A
+    - REPLACE_WITH_PUBLIC_SUBNET_B
+imagePullSecrets: []

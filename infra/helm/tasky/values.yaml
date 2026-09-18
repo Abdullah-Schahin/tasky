@@ -1,0 +1,20 @@
+# AWS defaults. Supply verified image and real ingress values before deployment.
+image:
+  reference: ""
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+replicaCount: 2
+existingSecret: tasky-secrets
+nodeSelector:
+  kubernetes.io/os: linux
+  exercise.tasky.io/network: private
+ingress:
+  className: alb
+  host: ""
+  certificateArn: ""
+  publicSubnets: []
+mongo:
+  enabled: false
+  image: mongo:8.0
+  existingSecret: tasky-local-mongo
+  storage: 1Gi
