@@ -5,6 +5,7 @@ metadata:
   namespace: {{ .Release.Namespace }}
   {{- if eq .Values.ingress.className "alb" }}
   annotations:
+    alb.ingress.kubernetes.io/tags: "created by=Abu,for=Wiz PSE"
     alb.ingress.kubernetes.io/scheme: internet-facing
     alb.ingress.kubernetes.io/target-type: ip
     alb.ingress.kubernetes.io/subnets: {{ join "," .Values.ingress.publicSubnets | quote }}

@@ -74,6 +74,14 @@
     "replicaCount": {
       "type": "integer",
       "minimum": 1
+    },
+    "mongodbTLS": {
+      "type": "object",
+      "properties": {
+        "existingSecret": {
+          "type": "string"
+        }
+      }
     }
   },
   "allOf": [

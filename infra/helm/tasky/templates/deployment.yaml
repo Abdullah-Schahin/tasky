@@ -16,6 +16,12 @@ spec:
       labels:
         app.kubernetes.io/name: tasky
     spec:
+      {{- with .Values.mongodbTLS.existingSecret }}
+      volumes:
+        - name: mongodb-ca
+          secret:
+            secretName: {{ . | quote }}
+      {{- end }}
       serviceAccountName: tasky
       # DELIBERATE: the mounted token carries cluster-admin privileges.
       automountServiceAccountToken: true
@@ -53,6 +59,12 @@ spec:
                   key: SECRET_KEY
             - name: GIN_MODE
               value: release
+          {{- with .Values.mongodbTLS.existingSecret }}
+          volumeMounts:
+            - name: mongodb-ca
+              mountPath: /etc/tasky-mongo-tls
+              readOnly: true
+          {{- end }}
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:

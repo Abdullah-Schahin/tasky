@@ -30,7 +30,7 @@ def details(scanner, text):
             rows.append((finding.get('DetectorName', 'Unknown detector'),
                          'verified' if finding.get('Verified') else 'unknown',
                          f"{git.get('file', '?')}:{git.get('line', '?')}"))
-    elif scanner in ('bearer', 'trivy'):
+    elif scanner in ('bearer', 'trivy', 'trivy-infra'):
         for run in json.loads(text).get('runs', []):
             for result in run.get('results', []):
                 loc = (result.get('locations') or [{}])[0].get('physicalLocation', {})

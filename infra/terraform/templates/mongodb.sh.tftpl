@@ -1,0 +1,130 @@
+#!/bin/bash
+set -euo pipefail
+umask 077
+export DEBIAN_FRONTEND=noninteractive
+# DELIBERATE: preserve the old OS/kernel and MongoDB version for the exercise.
+# Do not run apt upgrade. Install only required bootstrap/backup dependencies.
+systemctl disable --now apt-daily.timer apt-daily-upgrade.timer unattended-upgrades.service || true
+apt-get update
+apt-get install -y ca-certificates curl gnupg openssl python3 awscli
+curl -fsSL https://pgp.mongodb.com/server-6.0.asc | gpg --dearmor -o /usr/share/keyrings/mongodb-server-6.0.gpg
+printf '%s\n' 'deb [arch=amd64 signed-by=/usr/share/keyrings/mongodb-server-6.0.gpg] https://repo.mongodb.org/apt/ubuntu ${codename}/mongodb-org/6.0 multiverse' > /etc/apt/sources.list.d/mongodb-org-6.0.list
+apt-get update
+apt-get install -y mongodb-org-server=${mongo_version} mongodb-mongosh mongodb-database-tools
+apt-mark hold mongodb-org-server
+systemctl stop mongod || true
+install -d -m 0700 /etc/tasky /var/lib/tasky-backup
+install -d -m 0750 -o mongodb -g mongodb /etc/mongodb/tls
+# Dedicated lab CA; export only ca.crt to the Kubernetes client trust Secret.
+openssl req -x509 -newkey rsa:3072 -nodes -days 90 -subj '/CN=Tasky MongoDB Lab CA' \
+  -addext 'basicConstraints=critical,CA:TRUE' \
+  -keyout /etc/tasky/ca.key -out /etc/mongodb/tls/ca.crt
+openssl req -newkey rsa:3072 -nodes -subj '/CN=${private_ip}' \
+  -keyout /etc/mongodb/tls/server.key -out /etc/tasky/server.csr
+printf '%s\n' 'subjectAltName=IP:${private_ip},IP:127.0.0.1,DNS:localhost' 'extendedKeyUsage=serverAuth' > /etc/tasky/server.ext
+openssl x509 -req -in /etc/tasky/server.csr -CA /etc/mongodb/tls/ca.crt -CAkey /etc/tasky/ca.key \
+  -CAcreateserial -days 90 -extfile /etc/tasky/server.ext -out /etc/mongodb/tls/server.crt
+cat /etc/mongodb/tls/server.key /etc/mongodb/tls/server.crt > /etc/mongodb/tls/server.pem
+chown -R mongodb:mongodb /etc/mongodb/tls
+chmod 0400 /etc/mongodb/tls/server.key /etc/mongodb/tls/server.pem
+chmod 0444 /etc/mongodb/tls/ca.crt /etc/mongodb/tls/server.crt
+cat > /etc/mongod.conf <<'MONGO'
+storage:
+  dbPath: /var/lib/mongodb
+systemLog:
+  destination: file
+  path: /var/log/mongodb/mongod.log
+  logAppend: true
+net:
+  port: 27017
+  bindIp: 127.0.0.1,${private_ip}
+  tls:
+    mode: requireTLS
+    certificateKeyFile: /etc/mongodb/tls/server.pem
+    CAFile: /etc/mongodb/tls/ca.crt
+    allowConnectionsWithoutCertificates: true
+security:
+  authorization: enabled
+MONGO
+cat > /etc/ssh/sshd_config.d/01-tasky.conf <<'SSH'
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PermitRootLogin no
+SSH
+sshd -t
+systemctl reload ssh
+# Fetch credentials only at runtime, never from Terraform state or user_data.
+for attempt in $(seq 1 12); do
+  if aws secretsmanager get-secret-value --region '${region}' --secret-id '${secret_arn}' \
+      --query SecretString --output text > /etc/tasky/credentials.json; then break; fi
+  sleep 10
+done
+python3 - <<'PY'
+import json
+from pathlib import Path
+c = json.loads(Path('/etc/tasky/credentials.json').read_text())
+for name in ('admin_password', 'app_password', 'backup_password'):
+    assert isinstance(c[name], str) and len(c[name]) >= 24, 'Missing/short database credential'
+# JSON encoding keeps credentials out of shell interpolation and process arguments.
+script = 'const c = ' + json.dumps(c) + ';\n'
+script += '''const admin = db.getSiblingDB('admin');
+admin.createUser({user:'tasky_admin',pwd:c.admin_password,roles:[{role:'root',db:'admin'}]});
+admin.auth('tasky_admin',c.admin_password);
+admin.createUser({user:'tasky_app',pwd:c.app_password,roles:[{role:'readWrite',db:'go-mongodb'}]});
+admin.createUser({user:'tasky_backup',pwd:c.backup_password,roles:[{role:'backup',db:'admin'}]});
+'''
+Path('/etc/tasky/init.js').write_text(script)
+# mongodump config accepts YAML; JSON is a YAML subset.
+Path('/etc/tasky/backup.yaml').write_text(json.dumps({'password': c['backup_password']}))
+PY
+systemctl enable --now mongod
+ready=false
+for attempt in $(seq 1 60); do
+  if mongosh --quiet --host 127.0.0.1 --tls --tlsCAFile /etc/mongodb/tls/ca.crt \
+      --eval 'quit(db.adminCommand({ping:1}).ok === 1 ? 0 : 1)' > /dev/null 2>&1; then ready=true; break; fi
+  sleep 2
+done
+$ready
+mongosh --quiet --host 127.0.0.1 --tls --tlsCAFile /etc/mongodb/tls/ca.crt --file /etc/tasky/init.js > /dev/null
+rm -f /etc/tasky/init.js /etc/tasky/credentials.json
+cat > /usr/local/sbin/tasky-mongo-backup <<'BACKUP'
+#!/bin/bash
+set -euo pipefail
+umask 077
+archive=$(mktemp /var/lib/tasky-backup/mongodb-XXXXXXXX.archive.gz)
+trap 'rm -f "$archive"' EXIT
+mongodump --host '${private_ip}' --tls --tlsCAFile /etc/mongodb/tls/ca.crt \
+  --username tasky_backup --authenticationDatabase admin --config /etc/tasky/backup.yaml \
+  --archive="$archive" --gzip
+aws s3 cp "$archive" "s3://${bucket}/daily/$(date -u +%Y-%m-%dT%H-%M-%SZ).archive.gz" \
+  --region '${region}' --sse AES256 --only-show-errors
+BACKUP
+chmod 0700 /usr/local/sbin/tasky-mongo-backup
+cat > /etc/systemd/system/tasky-mongo-backup.service <<'UNIT'
+[Unit]
+Description=Daily MongoDB backup to exercise S3 bucket
+After=network-online.target mongod.service
+Requires=mongod.service
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/tasky-mongo-backup
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/tasky-backup
+UNIT
+cat > /etc/systemd/system/tasky-mongo-backup.timer <<'UNIT'
+[Unit]
+Description=Run MongoDB backup daily
+[Timer]
+OnCalendar=*-*-* 02:00:00 UTC
+Persistent=true
+RandomizedDelaySec=300
+[Install]
+WantedBy=timers.target
+UNIT
+systemctl daemon-reload
+systemctl enable --now tasky-mongo-backup.timer
+systemctl start tasky-mongo-backup.service
+printf '%s\n' 'MongoDB bootstrap and first backup completed' > /var/lib/tasky-backup/bootstrap-complete

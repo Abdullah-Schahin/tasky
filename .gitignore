@@ -23,3 +23,16 @@ deploy
 test
 tmp
 __pycache__
+
+# Terraform local state, plans and environment-specific inputs
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.tfvars
+*.tfvars.json
+crash.log
+crash.*.log
+
+# Local exercise SSH key and generated deployment inputs
+.local/

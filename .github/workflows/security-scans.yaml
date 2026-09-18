@@ -1,5 +1,4 @@
 name: Security Scans
-description: Reusable security scans workflow for TruffleHog, Bearer, govulncheck, and Trivy.
 
 on:
   workflow_call:
@@ -20,6 +19,17 @@ on:
       trivy:
         type: boolean
         default: false
+      trivy-infra:
+        description: Scan Terraform/Kubernetes configuration for misconfigurations.
+        type: boolean
+        default: false
+      infra-severity:
+        type: string
+        default: HIGH,CRITICAL
+      infra-ignorefile:
+        description: Optional reviewed, path-scoped Trivy YAML exceptions file.
+        type: string
+        default: ""
       working-directory:
         description: Source directory for Bearer and govulncheck; TruffleHog scans the Git commit range.
         type: string
@@ -58,7 +68,7 @@ jobs:
           import json, os, re
           i = json.loads(os.environ['INPUTS_JSON'])
           assert re.fullmatch(r'[a-z0-9-]{1,50}', i['report-prefix']), 'Invalid report-prefix'
-          assert any(i[s] for s in ('trufflehog', 'bearer', 'govulncheck', 'trivy')), 'Enable at least one scanner'
+          assert any(i[s] for s in ('trufflehog', 'bearer', 'govulncheck', 'trivy', 'trivy-infra')), 'Enable at least one scanner'
           if i['trivy']:
               assert i['image-artifact-id'].isdigit(), 'Trivy requires an artifact ID'
               assert re.fullmatch(r'[a-f0-9]{64}', i['image-sha256']), 'Trivy requires the archive SHA256'
@@ -138,7 +148,7 @@ jobs:
       SCANNER: trufflehog
       RESULT: ${{ needs.trufflehog.result }}
     # Shared steps; no checkout or execution of repository/artifact code.
-    steps:
+    steps: &comment-steps
       - name: Runtime Security Agent (Cimon)
         uses: cycodelabs/cimon-action@1374f7193c5a4390740fa451feb05ce812955958
         with:
@@ -160,7 +170,7 @@ jobs:
           e = os.environ
           scanner = e['SCANNER']
           assert re.fullmatch(r'[a-z0-9-]{1,50}', e['REPORT_PREFIX'])
-          assert scanner in ('trufflehog', 'bearer', 'govulncheck', 'trivy')
+          assert scanner in ('trufflehog', 'bearer', 'govulncheck', 'trivy', 'trivy-infra')
           assert e['PR_NUMBER'].isdigit()
           url = f"{e['GITHUB_SERVER_URL']}/{e['GITHUB_REPOSITORY']}/actions/runs/{e['GITHUB_RUN_ID']}"
           marker = f"<!-- security-report:{e['REPORT_PREFIX']}:{scanner}:{e['GITHUB_RUN_ID']} -->"
@@ -197,7 +207,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-    steps: &comment-steps
+    steps:
       - name: Runtime Security Agent (Cimon)
         uses: cycodelabs/cimon-action@1374f7193c5a4390740fa451feb05ce812955958
         with:
@@ -404,10 +414,74 @@ jobs:
       RESULT: ${{ needs.trivy.result }}
     steps: *comment-steps
 
+  trivy-infra:
+    name: Trivy infrastructure scan
+    needs: validate
+    if: inputs.trivy-infra
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Runtime Security Agent (Cimon)
+        uses: cycodelabs/cimon-action@1374f7193c5a4390740fa451feb05ce812955958
+        with:
+          prevent: true
+      - name: Checkout infrastructure
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Scan infrastructure with Trivy
+        id: scan
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
+        with:
+          scan-type: config
+          scan-ref: ${{ inputs.working-directory }}
+          format: sarif
+          output: trivy-infra.sarif
+          severity: ${{ inputs.infra-severity }}
+          limit-severities-for-sarif: true
+          trivyignores: ${{ inputs.infra-ignorefile }}
+          skip-dirs: .terraform
+          exit-code: "1"
+      - name: Prepare infrastructure summary
+        if: always()
+        env:
+          SCAN_OUTCOME: ${{ steps.scan.outcome }}
+        run: python3 .github/scripts/security-summary.py trivy-infra trivy-infra.sarif report.md
+      - name: Upload infrastructure summary
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ inputs.report-prefix }}-trivy-infra-summary
+          path: report.md
+          if-no-files-found: error
+          retention-days: 7
+      - name: Upload infrastructure SARIF
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ inputs.report-prefix }}-trivy-infra-sarif
+          path: trivy-infra.sarif
+          retention-days: 7
+
+  report-trivy-infra:
+    name: Comment infrastructure findings
+    needs: trivy-infra
+    if: always() && inputs.comment-on-pr && needs.trivy-infra.result != 'skipped' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: write
+    env:
+      SCANNER: trivy-infra
+      RESULT: ${{ needs.trivy-infra.result }}
+    steps: *comment-steps
+
   gate:
     name: Selected scanners passed
     if: always()
-    needs: [validate, trufflehog, bearer, govulncheck, trivy]
+    needs: [validate, trufflehog, bearer, govulncheck, trivy, trivy-infra]
     runs-on: ubuntu-latest
     steps:
       - name: Runtime Security Agent (Cimon)
@@ -423,7 +497,7 @@ jobs:
           import json, os
           selected = json.loads(os.environ['INPUTS_JSON'])
           results = json.loads(os.environ['RESULTS_JSON'])
-          required = ['validate'] + [s for s in ('trufflehog', 'bearer', 'govulncheck', 'trivy') if selected[s]]
+          required = ['validate'] + [s for s in ('trufflehog', 'bearer', 'govulncheck', 'trivy', 'trivy-infra') if selected[s]]
           failed = [s for s in required if results[s]['result'] != 'success']
           if failed:
               raise SystemExit('Security gate failed: ' + ', '.join(failed))

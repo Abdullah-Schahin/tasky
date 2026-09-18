@@ -18,3 +18,7 @@ mongo:
   image: mongo:8.0
   existingSecret: tasky-local-mongo
   storage: 1Gi
+
+# AWS MongoDB uses a dedicated CA; leave empty for local MongoDB.
+mongodbTLS:
+  existingSecret: ""

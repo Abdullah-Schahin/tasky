@@ -1,0 +1,20 @@
+# Read-only sandbox inspection on 2026-09-18. Recheck before use.
+region                  = "us-east-1"
+account_id              = "516027198761"
+availability_zones      = ["us-east-1a", "us-east-1b"]
+eks_admin_principal_arn = "arn:aws:iam::516027198761:user/odl_user_2392855"
+eks_version             = "1.35"
+# Empty: private API only. For direct laptop kubectl, supply your public IPv4 /32.
+eks_public_access_cidrs = []
+# Canonical Ubuntu 20.04, June 2025; verified available including deprecated images.
+mongodb_ami_id          = "ami-0fb0b230890ccd1e6"
+mongodb_ubuntu_codename = "focal"
+ssh_public_key         = "REPLACE_WITH_YOUR_SSH_PUBLIC_KEY"
+# Null creates a secret with generated credentials; optionally reuse an existing ARN.
+mongodb_secret_arn = null
+# Optional only for a customer-managed key protecting that Secret:
+# mongodb_secret_kms_key_arn = "arn:aws:kms:us-east-1:ACCOUNT:key/KEY_ID"
+existing_cloudtrail_arn = "arn:aws:cloudtrail:us-east-2:525391386877:trail/management-events-lab"
+enable_config          = true
+enable_security_hub    = false
+enable_guardduty       = false
