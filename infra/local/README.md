@@ -17,7 +17,7 @@ The script:
    kubectl context. Every Kubernetes operation explicitly targets that profile.
 2. Enables storage and the local ingress controller.
 3. Builds the current working tree inside Minikube for the node architecture and
-   gives each build a unique tag. It does not publish to GHCR.
+   gives each build a unique tag. It does not publish to ECR.
 4. Creates local random MongoDB/JWT credentials as Kubernetes Secrets without
    writing them to the repository. Existing credentials are reused on reruns.
 5. Installs/upgrades the `tasky` Helm release using `infra/local/values.yaml`, including a single MongoDB

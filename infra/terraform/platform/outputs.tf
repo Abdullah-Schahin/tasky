@@ -24,13 +24,12 @@ output "security_services" {
 output "load_balancer_controller_role_arn" { value = aws_iam_role.load_balancer_controller.arn }
 output "kubectl_setup" { value = "aws eks update-kubeconfig --profile wiz --region ${var.region} --name ${aws_eks_cluster.main.name}" }
 output "helm_aws_values" {
-  description = "Non-secret values; supply your own verified image, hostname, and ACM certificate."
+  description = "Non-secret HTTP-only exercise values; supply a verified image digest."
   value = yamlencode({
     ingress = {
-      className      = "alb"
-      host           = aws_acm_certificate.app.domain_name
-      certificateArn = aws_acm_certificate.app.arn
-      publicSubnets  = [for s in aws_subnet.public : s.id]
+      className     = "alb"
+      host          = ""
+      publicSubnets = [for s in aws_subnet.public : s.id]
     }
     mongodbTLS = { existingSecret = "tasky-mongo-ca" }
   })
@@ -38,17 +37,4 @@ output "helm_aws_values" {
 output "mongodb_secret_arn" {
   description = "ARN only, never credential values."
   value       = local.mongodb_secret_arn
-}
-
-output "app_tls" {
-  description = "Add the validation CNAME in FreeDNS; app deployment waits for certificate issuance."
-  value = {
-    domain          = aws_acm_certificate.app.domain_name
-    certificate_arn = aws_acm_certificate.app.arn
-    validation_records = [for record in aws_acm_certificate.app.domain_validation_options : {
-      name  = record.resource_record_name
-      type  = record.resource_record_type
-      value = record.resource_record_value
-    }]
-  }
 }

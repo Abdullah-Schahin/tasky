@@ -4,7 +4,7 @@
 infra/
 ├── terraform/
 │   ├── bootstrap/   # GitHub OIDC, CI IAM roles, protected state bucket
-│   └── platform/    # VPC, EKS, MongoDB, audit resources, ACM certificate
+│   └── platform/    # VPC, EKS, MongoDB, audit resources
 ├── helm/            # Tasky chart and AWS values
 └── local/           # Minikube deployment
 ```
@@ -13,17 +13,15 @@ Terraform roots are separated by deployment identity and lifecycle. Existing res
 addresses and bootstrap/platform state keys remain unchanged. Platform state stays at
 `infra/terraform.tfstate`; bootstrap state stays at `bootstrap/terraform.tfstate`.
 
-Domain registration and Route 53 TLS/app-DNS roots have been removed. The exercise
-uses the externally managed FreeDNS hostname `tasky-abu-pse.apps.dj`. No registrar,
-Route 53 hosted zone, or Route 53 record is provisioned. ACM is part of the platform.
+The exercise deliberately uses HTTP on the AWS-generated ALB hostname. No domain
+registration, Route 53 records, FreeDNS configuration or ACM certificate is needed.
+Missing public TLS is an expected security finding; MongoDB TLS remains enabled.
 
 - **Bootstrap Infra**: manually create/update IAM and protected state storage.
-- **Infra CI/CD**: scan/validate, plan, and optionally apply the platform. The apply
-  summary contains the ACM ARN and the CNAME to add in FreeDNS.
-- **App CI/CD**: build/test/scan/sign, optionally deploy Helm, and output the ALB
-  hostname for the FreeDNS application CNAME.
+- **Infra CI/CD**: scan/validate, plan, and optionally apply the platform.
+- **App CI/CD**: build/test/scan/sign, deploy Helm after approval, and output the HTTP URL.
 
-See [FreeDNS and HTTPS setup](freedns.md), [bootstrap setup](terraform/bootstrap/README.md),
+See [HTTP demo and expected weakness](http-demo.md), [bootstrap setup](terraform/bootstrap/README.md),
 [platform operation](terraform/platform/README.md), [Helm](helm/README.md), and
 [local Minikube](local/README.md).
 

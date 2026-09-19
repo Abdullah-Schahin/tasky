@@ -1,7 +1,7 @@
 # CI bootstrap
 
 Run this stack through the manually triggered **Bootstrap AWS account** Actions workflow. It owns the GitHub OIDC provider
-(or reuses one), three CI roles, the workload permissions boundary, and one private
+(or reuses one), four CI roles, the workload permissions boundary, and one private
 S3 bucket for infrastructure state and saved plans. It does not create EKS, runners,
 access keys, DynamoDB, or another application registry. All taggable resources receive
 `created by=Abu` and `for=Wiz PSE` through provider default tags.
@@ -10,6 +10,7 @@ access keys, DynamoDB, or another application registry. All taggable resources r
 | --- | --- | --- |
 | `tasky-wiz-ci-plan` | `infra-deplyoment` | Discovery metadata, read infrastructure state, write locks and plans |
 | `tasky-wiz-ci-apply` | `infra-deplyoment` | Apply infrastructure, write state, read saved plans |
+| `tasky-wiz-ci-publish` | None; main branch OIDC | Push/pull image and signing artifacts in the Tasky ECR repository only |
 | `tasky-wiz-ci-app` | `app-deployment` | Describe the named cluster; infrastructure stack adds EKS admin in namespace `tasky` |
 
 OIDC trusts match the exact, case-sensitive repository plus immutable owner/repository
@@ -146,15 +147,15 @@ Infrastructure CI validates the infrastructure stack; PRs scan without AWS crede
 The separate manual bootstrap workflow validates/tests bootstrap before authenticating. Main runs
 plan using `infra-deplyoment`; manual dispatch with `apply=true` applies the exact saved
 plan after `infra-deplyoment` approval. Plans are stored in the private state bucket,
-not public GitHub artifacts. The existing plan guard rejects deletes/replacements.
+not public GitHub artifacts. The plan guard rejects deletes/replacements except the exact retired demo certificate migration.
 Bootstrap IAM permissions are checked by mocked Terraform tests in CI; an AWS plan
 validates API reads but is not proof that every create/update API will be authorized.
 
-The app workflow publishes to GHCR and has an opt-in AWS deployment job using
-`app-deployment`. It can describe the cluster, ACM certificate and ALB, but cannot
-write DNS or read Terraform state. Infrastructure CI requests the FreeDNS hostname's
-ACM certificate. See [FreeDNS setup](../../freedns.md) for manual validation records,
-app environment variables, and enabling `ENABLE_APP_DEPLOY`.
+The app workflow publishes to the Terraform-created private ECR repository and has an opt-in AWS deployment job using
+`app-deployment`. It can describe the cluster and ALB, but cannot write DNS or read
+Terraform state. See [HTTP demo setup](../../http-demo.md) for app variables and the
+intentional public TLS weakness. Infrastructure roles retain ACM read/delete access
+only for removing the retired certificate; certificate creation is no longer granted.
 
 When migrating from the previous environment names, create `infra-deplyoment` and
 `app-deployment` first and copy their variables/secrets. Put both
@@ -205,3 +206,11 @@ exclusion, mandatory boundaries, and reuse of existing OIDC providers.
 References: [GitHub OIDC trust](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_create_for-idp_oidc.html),
 [S3 backend and lock permissions](https://developer.hashicorp.com/terraform/language/backend/s3),
 [EKS access scopes](https://docs.aws.amazon.com/eks/latest/userguide/access-policy-permissions.html).
+
+## ECR publishing
+
+After applying bootstrap, set repository variables `AWS_ECR_PUBLISH_ROLE_ARN` and
+`ECR_REPOSITORY` from `github_variables`. No additional GitHub environment is needed.
+The publisher trusts the immutable repository identity on main and has ECR push/pull
+permissions only. The existing app role receives pull-only ECR access for Cosign
+verification. The EKS node role already has AmazonEC2ContainerRegistryPullOnly.

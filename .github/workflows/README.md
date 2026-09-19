@@ -98,13 +98,12 @@ on the first run, retains it for subsequent runs, and blocks deletes/replacement
 See [bootstrap setup](../../infra/terraform/bootstrap/README.md) for the exact variables, secrets,
 state migration and environment protection requirements.
 
-## FreeDNS and app HTTPS
+## HTTP-only application demo
 
-Domain registration and the domain workflow job are removed. Platform Terraform requests
-an ACM certificate for `tasky-abu-pse.apps.dj` and outputs its external DNS validation
-CNAME in the apply summary. Add it in FreeDNS, wait for issuance, then deploy the app.
-The app summary provides the ALB target for the FreeDNS application CNAME. No DNS
-credentials or hosted zone ID are needed by app CI. See [setup](../../infra/freedns.md).
+App deployment exposes port 80 on the AWS-generated ALB hostname with a catch-all
+HTTP ingress. The job summary reports the URL. No domain, ACM certificate, DNS
+credentials or DNS records are required. This missing TLS is an intentional exercise
+finding; see [impact and remediation](../../infra/http-demo.md).
 
 ## Main-branch security issues
 
@@ -123,3 +122,17 @@ TruffleHog history scans exclude exactly two reviewed MongoDB documentation plac
 values via `trufflehog-filter.py`. Exceptions match detector, file path and value hash,
 apply only to non-verified findings, and preserve scanner execution failures. They do
 not exclude Markdown files, the MongoDB detector, or other historical credentials.
+
+## Private ECR releases
+
+App CI publishes to `<AWS_ACCOUNT_ID>.dkr.ecr.<AWS_REGION>.amazonaws.com/<ECR_REPOSITORY>`
+(default repository `tasky-wiz/tasky`). Set repository variables `AWS_ECR_PUBLISH_ROLE_ARN`
+and `ECR_REPOSITORY` from bootstrap outputs, then apply bootstrap before publishing.
+No AWS access keys or extra environment are required. PRs build and scan without AWS
+authentication; main pushes/manual runs assume the publish-only OIDC role after scans.
+Tags include full commit SHA, run ID and attempt to avoid immutable-tag collisions.
+The exact scanned archive is loaded/pushed; signatures, SBOM and provenance are stored
+in ECR using Cosign 3 OCI referrers. Deployment assumes the app role, authenticates to
+ECR, verifies the signature and installs the digest-pinned image after environment
+approval. Temporary registry credentials are removed after each job.
+The existing ECR repository remains immutable; no floating `latest` tag is published.

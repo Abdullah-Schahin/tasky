@@ -157,8 +157,7 @@ resource "aws_iam_role_policy" "apply_services" {
       "guardduty:CreateDetector", "guardduty:UpdateDetector", "guardduty:DeleteDetector", "guardduty:TagResource", "guardduty:UntagResource",
       "securityhub:EnableSecurityHub", "securityhub:DisableSecurityHub", "securityhub:UpdateSecurityHubConfiguration", "securityhub:TagResource", "securityhub:UntagResource"
     ], Resource = "*", Condition = { StringEquals = { "aws:RequestedRegion" = var.region } } },
-    { Effect = "Allow", Action = "acm:RequestCertificate", Resource = "*", Condition = { StringEquals = { "aws:RequestedRegion" = var.region }, "ForAllValues:StringEquals" = { "acm:DomainNames" = ["tasky-abu-pse.apps.dj"] } } },
-    { Effect = "Allow", Action = ["acm:DeleteCertificate", "acm:AddTagsToCertificate", "acm:RemoveTagsFromCertificate"], Resource = "${local.arn}:acm:${var.region}:${var.account_id}:certificate/*" },
+    { Effect = "Allow", Action = ["acm:DeleteCertificate"], Resource = "${local.arn}:acm:${var.region}:${var.account_id}:certificate/*" },
     { Effect = "Allow", Action = "eks:*", Resource = ["${local.arn}:eks:${var.region}:${var.account_id}:cluster/${var.prefix}", "${local.arn}:eks:${var.region}:${var.account_id}:nodegroup/${var.prefix}/*", "${local.arn}:eks:${var.region}:${var.account_id}:access-entry/${var.prefix}/*", "${local.arn}:eks:${var.region}:${var.account_id}:addon/${var.prefix}/*"] },
     { Effect = "Allow", Action = "ecr:*", Resource = "${local.arn}:ecr:${var.region}:${var.account_id}:repository/${var.prefix}/tasky" },
     { Effect = "Allow", Action = "logs:*", Resource = ["${local.arn}:logs:${var.region}:${var.account_id}:log-group:/aws/eks/${var.prefix}/cluster", "${local.arn}:logs:${var.region}:${var.account_id}:log-group:/aws/eks/${var.prefix}/cluster:*"] },
@@ -173,8 +172,31 @@ resource "aws_iam_role_policy" "app" {
   policy = jsonencode({ Version = "2012-10-17", Statement = [{
     Effect = "Allow", Action = "eks:DescribeCluster", Resource = "${local.arn}:eks:${var.region}:${var.account_id}:cluster/${var.prefix}"
     }, {
-    Effect = "Allow", Action = "acm:DescribeCertificate", Resource = "${local.arn}:acm:${var.region}:${var.account_id}:certificate/*"
-    }, {
     Effect = "Allow", Action = ["elasticloadbalancing:DescribeLoadBalancers", "elasticloadbalancing:DescribeListeners"], Resource = "*", Condition = { StringEquals = { "aws:RequestedRegion" = var.region } }
   }] })
+}
+
+# Publishing has no EKS/state access and needs no additional GitHub environment.
+resource "aws_iam_role" "publisher" {
+  name = "${var.prefix}-ci-publish"
+  assume_role_policy = jsonencode({ Version = "2012-10-17", Statement = [{
+    Effect    = "Allow", Action = "sts:AssumeRoleWithWebIdentity",
+    Principal = { Federated = local.oidc_arn },
+    Condition = { StringEquals = {
+      "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com",
+      "token.actions.githubusercontent.com:sub" = "${local.github_subject_prefix}:ref:refs/heads/main"
+    } }
+  }] })
+}
+resource "aws_iam_role_policy" "ecr" {
+  for_each = { publish = aws_iam_role.publisher.id, app = aws_iam_role.ci["app"].id }
+  name     = "tasky-ecr-${each.key}"
+  role     = each.value
+  policy = jsonencode({ Version = "2012-10-17", Statement = [
+    { Effect = "Allow", Action = ["ecr:GetAuthorizationToken"], Resource = "*" },
+    { Effect = "Allow", Action = concat(
+      ["ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer", "ecr:BatchCheckLayerAvailability"],
+      each.key == "publish" ? ["ecr:InitiateLayerUpload", "ecr:UploadLayerPart", "ecr:CompleteLayerUpload", "ecr:PutImage"] : []
+    ), Resource = "${local.arn}:ecr:${var.region}:${var.account_id}:repository/${var.prefix}/tasky" }
+  ] })
 }

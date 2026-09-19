@@ -60,6 +60,9 @@ jobs:
         uses: cycodelabs/cimon-action@1374f7193c5a4390740fa451feb05ce812955958
         with:
           prevent: false
+          allowed-hosts: >
+            *.hashicorp.com
+            *.terraform.io
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -213,18 +216,3 @@ jobs:
           printf '%s  %s\n' "$PLAN_SHA256" "$RUNNER_TEMP/tasky.tfplan" | sha256sum --check --strict
       - name: Apply saved plan
         run: terraform -chdir=infra/terraform/platform apply -input=false -lock-timeout=5m "$RUNNER_TEMP/tasky.tfplan"
-      - name: Publish certificate and FreeDNS validation records
-        run: |
-          terraform -chdir=infra/terraform/platform output -json app_tls > "$RUNNER_TEMP/app-tls.json"
-          python3 - <<'PYTHON'
-          import json, os
-          from pathlib import Path
-          tls = json.loads(Path(os.environ['RUNNER_TEMP'], 'app-tls.json').read_text())
-          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as out:
-              out.write('## FreeDNS and HTTPS setup\n\n')
-              out.write(f"Set app-deployment secret APP_DOMAIN to `{tls['domain']}`.\n\n")
-              out.write(f"Set ACM_CERTIFICATE_ARN to `{tls['certificate_arn']}`.\n\n")
-              out.write('Add these CNAME records in FreeDNS and wait for ACM status ISSUED before app deployment:\n\n')
-              for record in tls['validation_records']:
-                  out.write(f"- `{record['name']}` → `{record['value']}`\n")
-          PYTHON

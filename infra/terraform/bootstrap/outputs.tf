@@ -1,12 +1,14 @@
 output "github_variables" {
   value = {
-    AWS_REGION              = var.region
-    AWS_ACCOUNT_ID          = var.account_id
-    AWS_TF_PLAN_ROLE_ARN    = aws_iam_role.ci["plan"].arn
-    AWS_TF_APPLY_ROLE_ARN   = aws_iam_role.ci["apply"].arn
-    AWS_APP_DEPLOY_ROLE_ARN = aws_iam_role.ci["app"].arn
-    TF_STATE_BUCKET         = aws_s3_bucket.state.id
-    TF_STATE_KEY            = var.state_key
+    AWS_ECR_PUBLISH_ROLE_ARN = aws_iam_role.publisher.arn
+    ECR_REPOSITORY           = "${var.prefix}/tasky"
+    AWS_REGION               = var.region
+    AWS_ACCOUNT_ID           = var.account_id
+    AWS_TF_PLAN_ROLE_ARN     = aws_iam_role.ci["plan"].arn
+    AWS_TF_APPLY_ROLE_ARN    = aws_iam_role.ci["apply"].arn
+    AWS_APP_DEPLOY_ROLE_ARN  = aws_iam_role.ci["app"].arn
+    TF_STATE_BUCKET          = aws_s3_bucket.state.id
+    TF_STATE_KEY             = var.state_key
   }
 }
 output "infrastructure_inputs" {

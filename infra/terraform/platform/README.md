@@ -30,7 +30,7 @@ adds a restricted public API endpoint without moving the cluster ENIs or nodes.
 
 Terraform creates only the app's VPC/routes/NAT, EKS with two workers, ECR, MongoDB
 instance and credentials/key-pair, backup bucket, private audit destination, necessary
-IAM and security groups, AWS Config, and the app ACM certificate. Security Hub CSPM (default standards) and GuardDuty are
+IAM and security groups, AWS Config. Security Hub CSPM (default standards) and GuardDuty are
 **enabled by default**. There is no Terraform-created ALB, Route 53 zone,
 extra bastion, standalone guardrail demo bucket, VPC endpoint fleet, or redundant audit services. CI bootstrap is maintained separately in `../bootstrap`.
 The existing secure audit bucket also serves as the separate preventive-control example.
@@ -211,11 +211,10 @@ logs its MongoDB URI at startup; avoid exposing those logs until separately corr
 The chart's optional `mongodbTLS.existingSecret: tasky-mongo-ca` mounts the trust file
 at `/etc/tasky-mongo-tls/ca.crt`. Local Minikube leaves this feature disabled.
 
-The platform requests ACM for `tasky-abu-pse.apps.dj`. Add the validation CNAME from
-`app_tls` in FreeDNS and wait for certificate issuance. Supply that ARN and a verified
-image digest for Helm deployment. App CI outputs the ALB hostname for the FreeDNS
-application CNAME; see [FreeDNS setup](../../freedns.md). DNS updates remain manual.
-ECR is ready for a future registry migration; the existing GHCR app pipeline is unchanged.
+The app intentionally uses HTTP on the AWS-generated ALB hostname. No DNS validation
+or certificate is required. See [HTTP demo setup and remediation](../../http-demo.md).
+App CI publishes signed images and attestations to this stack's ECR repository.
+EKS pulls by immutable digest using the node role's ECR pull permissions.
 
 ## Findings, controls and production changes
 
@@ -234,6 +233,7 @@ ECR is ready for a future registry migration; the existing GHCR app pipeline is 
 | Audit S3 | Public access blocked, versioned, SSE-S3, deny non-TLS | Preventive control | Centralized immutable audit storage |
 | AWS Config | Public S3, unrestricted SSH and versioning rules | Detective control | Broader continuous configuration coverage |
 | Security Hub / GuardDuty | Enabled in platform configuration | Detection/posture | Review findings after approved apply |
+| Public app ingress | HTTP-only ALB, no TLS | Yes | Controlled hostname, ACM, HTTPS and HTTP redirect |
 | App service account | Existing Helm cluster-admin/token/PSA exercise gaps | Yes | Least-privilege RBAC and workload guardrails |
 
 The IAM attack path is realistic privilege creep, not AdministratorAccess: compromise

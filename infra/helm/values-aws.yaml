@@ -2,8 +2,7 @@
 # Supply image.reference via --set-string using a verified release digest.
 ingress:
   className: alb
-  host: tasky-abu-pse.apps.dj
-  certificateArn: REPLACE_WITH_ACM_CERTIFICATE_ARN
+  host: "" # Catch-all rule allows the AWS-generated ALB hostname.
   publicSubnets:
     - REPLACE_WITH_PUBLIC_SUBNET_A
     - REPLACE_WITH_PUBLIC_SUBNET_B

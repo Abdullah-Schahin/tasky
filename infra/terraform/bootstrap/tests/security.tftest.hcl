@@ -37,7 +37,7 @@ run "identity_and_state_isolation" {
     error_message = "Plan must not write infrastructure state."
   }
   assert {
-    condition     = jsondecode(aws_iam_role_policy.app.policy).Statement[0].Action == "eks:DescribeCluster" && length(jsondecode(aws_iam_role_policy.app.policy).Statement) == 3 && alltrue([for s in jsondecode(aws_iam_role_policy.app.policy).Statement : alltrue([for a in try(tolist(s.Action), [s.Action]) : startswith(a, "eks:Describe") || startswith(a, "acm:Describe") || startswith(a, "elasticloadbalancing:Describe")])])
+    condition     = jsondecode(aws_iam_role_policy.app.policy).Statement[0].Action == "eks:DescribeCluster" && length(jsondecode(aws_iam_role_policy.app.policy).Statement) == 2 && alltrue([for s in jsondecode(aws_iam_role_policy.app.policy).Statement : alltrue([for a in try(tolist(s.Action), [s.Action]) : startswith(a, "eks:Describe") || startswith(a, "elasticloadbalancing:Describe")])])
     error_message = "The app role must not gain infrastructure or state privileges."
   }
   assert {
@@ -64,5 +64,17 @@ run "reuse_existing_oidc" {
   assert {
     condition     = length(aws_iam_openid_connect_provider.github) == 0
     error_message = "Reusing an existing GitHub provider must not create a duplicate."
+  }
+}
+
+run "ecr_publish_and_pull_isolation" {
+  command = apply
+  assert {
+    condition     = jsondecode(aws_iam_role.publisher.assume_role_policy).Statement[0].Condition.StringEquals["token.actions.githubusercontent.com:sub"] == "repo:Abdullah-Schahin@33698941/tasky@1374160582:ref:refs/heads/main"
+    error_message = "ECR publishing must trust only main in this immutable repository identity."
+  }
+  assert {
+    condition     = alltrue([for p in aws_iam_role_policy.ecr : jsondecode(p.policy).Statement[1].Resource == "arn:aws:ecr:us-east-1:516027198761:repository/tasky-wiz/tasky"]) && !contains(jsondecode(aws_iam_role_policy.ecr["app"].policy).Statement[1].Action, "ecr:PutImage") && contains(jsondecode(aws_iam_role_policy.ecr["publish"].policy).Statement[1].Action, "ecr:PutImage")
+    error_message = "Publishing must be scoped to Tasky's repository; deployment must have pull-only access."
   }
 }

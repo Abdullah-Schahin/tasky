@@ -364,11 +364,3 @@ resource "aws_cloudtrail" "main" {
   }
   depends_on = [aws_s3_bucket_policy.audit]
 }
-
-# FreeDNS owns public DNS. Output the validation CNAME for the operator instead
-# of waiting here; the app deployment explicitly requires an ISSUED certificate.
-resource "aws_acm_certificate" "app" {
-  domain_name       = "tasky-abu-pse.apps.dj"
-  validation_method = "DNS"
-  lifecycle { create_before_destroy = true }
-}

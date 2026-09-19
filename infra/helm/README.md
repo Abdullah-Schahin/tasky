@@ -20,7 +20,7 @@ permitted network path. No MongoDB StatefulSet is included.
 | Seccomp/AppArmor | No explicit workload profile | Missing explicit hardening; runtime defaults may still apply, so do not claim protection is definitely disabled |
 | Deployment | Two replicas, UID/GID 10001, dropped capabilities, no privilege escalation, probes and resource limits | Retains container hardening while RBAC remains deliberately excessive |
 | Secret | Explicit `secretKeyRef` for `MONGODB_URI` and `SECRET_KEY` | Keeps values outside the Deployment; a Kubernetes Secret is not automatically proof of encrypted storage |
-| Service/Ingress | ClusterIP and ALB IP targets, HTTPS with HTTP redirect | Public application entry point without public worker nodes |
+| Service/Ingress | ClusterIP and ALB IP targets, HTTP-only port 80 (intentional TLS gap) | Public application entry point without public worker nodes |
 
 `secret.yaml` is a reference template and is deliberately outside the Helm chart.
 Real secrets are bootstrapped separately so deployments cannot overwrite credentials
@@ -31,7 +31,7 @@ those objects for the exercise.
 
 1. EKS with AWS VPC CNI and a node group in private subnets. Nodes must have no public
    IPs and their subnet routes must not go directly to an internet gateway. Supply
-   egress for GHCR image pulls, DNS, Kubernetes API access, and MongoDB as appropriate.
+   egress for ECR image pulls (ECR API/registry and S3 layer downloads), DNS, Kubernetes API access, and MongoDB as appropriate.
 2. Label that verified private node group `exercise.tasky.io/network=private` in its
    node-group configuration. The Deployment requires this label; without it, pods
    remain Pending. The label alone does not make a subnet private.
@@ -40,12 +40,11 @@ those objects for the exercise.
 4. Two public ALB subnet IDs in different AZs, with internet gateway routes and
    sufficient IP space. Public and private subnet placement is infrastructure work,
    not something these app manifests create.
-5. An issued ACM certificate in the ALB's region for your application hostname.
-   Point that hostname at the provisioned ALB using Route 53 alias or DNS CNAME.
+5. Accept the documented [HTTP-only demo weakness](../http-demo.md); no domain or certificate is required.
 6. Permit ALB-to-pod TCP 8080 and pod-to-MongoDB traffic in the relevant AWS security
    groups/routes. Restrict MongoDB's inbound rule to the intended workload source.
-7. If GHCR is private, create a registry pull Secret in `tasky` and pass its name to
-   Helm. CI's Docker login does not give Kubernetes permission to pull.
+7. The EKS node IAM role must permit ECR pulls. Terraform attaches
+   `AmazonEC2ContainerRegistryPullOnly`; no registry pull Secret is needed for Tasky.
 
 The deployment identity needs permission to create the namespace and ClusterRoleBinding,
 including granting the referenced cluster-admin role. Keep that provisioning identity
@@ -83,7 +82,7 @@ restart the Deployment. Do not paste secret values or token contents into demo e
 ## Render and deploy
 
 The chart is in `infra/helm/tasky`. Install Helm 3.17+ or Helm 4. Fill in
-`infra/helm/values-aws.yaml` with your hostname, ACM certificate ARN, and at least
+`infra/helm/values-aws.yaml` with at least
 two distinct public subnet IDs. These values are not credentials; keep MongoDB
 and JWT secrets in the separately bootstrapped Kubernetes Secret.
 
@@ -105,11 +104,11 @@ helm upgrade --install tasky infra/helm/tasky \
 For the first migration of existing resources, including a bootstrapped namespace,
 add `--take-ownership` to the upgrade command. Omit it on later upgrades. Use release
 name `tasky`; the chart preserves stable resource names and supports one release
-per namespace. For private GHCR, set `imagePullSecrets` in the AWS values file.
+per namespace. EKS uses node IAM credentials for private ECR pulls.
 
 `values.schema.json` validates merged values during Helm rendering, linting, and
-deployment: AWS images must use SHA256 digests, hostnames cannot use `.invalid`,
-certificate ARNs must be well formed, and subnet IDs must be valid and distinct.
+deployment: AWS images must use SHA256 digests, the AWS host must be empty (catch-all),
+and subnet IDs must be valid and distinct.
 It does not verify that AWS resources exist, occupy different AZs, or are reachable.
 Local nginx values allow development image tags and do not require AWS settings.
 The placeholders deliberately fail validation until replaced.
@@ -118,10 +117,10 @@ The placeholders deliberately fail validation until replaced.
 helm lint infra/helm/tasky -f infra/local/values.yaml
 ```
 
-The opt-in AWS app deployment job reads secret `APP_DOMAIN`, variable
-`ACM_CERTIFICATE_ARN`, and JSON-array variable `PUBLIC_SUBNET_IDS`, then generates
-Helm values for the signed image digest. Configure the private EKS runner and
-follow the [domain setup](../freedns.md) before enabling it.
+The opt-in AWS app deployment job reads JSON-array variable `PUBLIC_SUBNET_IDS` and
+generates Helm values for the signed image digest. No domain or certificate input
+is required. Configure the private EKS runner and follow the
+[HTTP demo setup](../http-demo.md) before enabling it.
 Namespace/Secret bootstrapping and initial Helm adoption are manual prerequisites.
 
 ## Demo and evidence
@@ -150,7 +149,7 @@ IDs. A pod IP or node label by itself is not proof of private-subnet placement.
 
 For persistence proof:
 
-1. Open the HTTPS application, sign up/sign in, and create a todo with a unique name,
+1. Open the HTTP application using synthetic credentials, sign up/sign in, and create a todo with a unique name,
    such as `wiz-demo-2026-09-18-001`.
 2. From an authorized database client on the MongoDB network, authenticate with a
    password prompt (avoid putting credentials in a command line), then run:
@@ -187,9 +186,9 @@ References: [AWS ALB annotations](https://kubernetes-sigs.github.io/aws-load-bal
 [AWS private node subnet guidance](https://docs.aws.amazon.com/eks/latest/best-practices/subnets.html),
 [Kubernetes Pod Security Admission](https://kubernetes.io/docs/concepts/security/pod-security-admission/).
 
-## FreeDNS and certificate
+## Expected weakness: no public TLS
 
-The platform requests an ACM certificate for `tasky-abu-pse.apps.dj`. Add its validation
-CNAME in FreeDNS and wait for issuance. The app workflow supplies `APP_DOMAIN` and
-`ACM_CERTIFICATE_ARN` to Helm, then reports the ALB hostname for your FreeDNS app CNAME.
-See [FreeDNS setup](../freedns.md). CI does not modify FreeDNS records.
+The ingress exposes HTTP on port 80 with no hostname condition, certificate or HTTPS
+redirect. App CI reports the AWS-generated ALB URL. Network-path attackers could
+intercept credentials/session tokens and read or modify app data. Use synthetic demo
+data. See [evidence and remediation](../http-demo.md). MongoDB TLS is unchanged.

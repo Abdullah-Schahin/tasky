@@ -48,5 +48,17 @@ for r in managed.values():
         assert r['values'].get('secret_string') is None
         assert r['values'].get('secret_string_wo') is None
         assert r['values']['secret_string_wo_version'] == 1
-assert not any('delete' in r['change']['actions'] for r in plan['resource_changes']), 'Destructive plan requires separate review'
+def retired_demo_certificate(change):
+    # Explicitly authorized migration to HTTP-only: only delete this obsolete cert.
+    before = change['change'].get('before') or {}
+    return (change['address'] == 'aws_acm_certificate.app'
+            and change['type'] == 'aws_acm_certificate'
+            and change['change']['actions'] == ['delete']
+            and before.get('domain_name') == 'tasky-abu-pse.apps.dj'
+            and before.get('validation_method') == 'DNS')
+
+assert not any('delete' in r['change']['actions'] and not retired_demo_certificate(r)
+               for r in plan['resource_changes']), 'Destructive plan requires separate review'
+if any(retired_demo_certificate(r) for r in plan['resource_changes']):
+    print('Expected migration: delete the retired FreeDNS ACM certificate for the HTTP-only demo.')
 print(f'PASS: {len(managed)} managed resources; tags, private subnets, intended exposures, audit controls and write-only credentials checked.')
