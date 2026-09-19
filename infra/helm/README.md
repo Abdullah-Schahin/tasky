@@ -63,11 +63,13 @@ Create an ignored local file `.env.k8s` with restrictive permissions (`chmod 600
 containing real values, without shell quotes:
 
 ```text
-MONGODB_URI=mongodb://USER:URL_ENCODED_PASSWORD@PRIVATE_MONGO_HOST:27017/go-mongodb?authSource=admin
+MONGODB_URI=REPLACE_WITH_YOUR_MONGODB_CONNECTION_STRING
 SECRET_KEY=REPLACE_WITH_A_LONG_RANDOM_SECRET
 ```
 
-Use the MongoDB provider's TLS/SRV connection options when applicable. The application
+Replace the placeholder locally with your authenticated MongoDB connection string.
+Percent-encode special characters in credentials and set the authentication database
+for your MongoDB user. Use the MongoDB provider's TLS/SRV connection options when applicable. The application
 selects **`go-mongodb` in code**, regardless of a different database name in the URI.
 
 ```sh

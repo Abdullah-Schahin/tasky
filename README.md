@@ -5,8 +5,8 @@ A Dockerfile has been provided to run this application.  The default port expose
 The following environment variables are needed.
 |Variable|Purpose|example|
 |---|---|---|
-|`MONGODB_URI`|Address to mongo server|`mongodb://servername:27017` or `mongodb://username:password@hostname:port` or `mongodb+srv://` schema|
-|`SECRET_KEY`|Secret key for JWT tokens|`secret123`|
+|`MONGODB_URI`|MongoDB connection string, including authentication and TLS options where required|`REPLACE_WITH_YOUR_MONGODB_CONNECTION_STRING`|
+|`SECRET_KEY`|Secret key for JWT tokens|Generate a long, random secret; do not commit it|
 
 Alternatively, you can create a `.env` file and load it up with the environment variables.
 
