@@ -11,6 +11,7 @@ on:
         ".github/scripts/terraform_ci.py",
         ".github/scripts/terraform-plan-check.py",
         ".github/scripts/security-summary.py",
+        ".github/scripts/trufflehog-filter.py",
         ".github/scripts/security-comment.py",
       ]
   push:
@@ -23,6 +24,7 @@ on:
         ".github/scripts/terraform_ci.py",
         ".github/scripts/terraform-plan-check.py",
         ".github/scripts/security-summary.py",
+        ".github/scripts/trufflehog-filter.py",
         ".github/scripts/security-comment.py",
       ]
   workflow_dispatch:

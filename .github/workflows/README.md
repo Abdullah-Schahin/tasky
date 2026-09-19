@@ -120,3 +120,8 @@ The label is created automatically if missing. Each current caller invokes this
 reusable workflow once per run. Keep that single-call pattern for issue initialization.
 PR runs continue to get immediate per-scanner PR comments. Enable repository Issues.
 Publishing errors leave scanner verdicts unchanged; summaries/artifacts remain available.
+
+TruffleHog history scans exclude exactly two reviewed MongoDB documentation placeholder
+values via `trufflehog-filter.py`. Exceptions match detector, file path and value hash,
+apply only to non-verified findings, and preserve scanner execution failures. They do
+not exclude Markdown files, the MongoDB detector, or other historical credentials.

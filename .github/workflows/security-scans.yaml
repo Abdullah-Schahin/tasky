@@ -120,6 +120,8 @@ jobs:
             ghcr.io/trufflesecurity/trufflehog:latest "${args[@]}" \
             > "$RUNNER_TEMP/trufflehog.jsonl" 2> "$RUNNER_TEMP/trufflehog.stderr"
           code=$?
+          python3 .github/scripts/trufflehog-filter.py "$RUNNER_TEMP/trufflehog.jsonl" "$code"
+          code=$?
           set -e
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
           exit "$code"
