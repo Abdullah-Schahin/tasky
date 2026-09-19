@@ -306,7 +306,7 @@ jobs:
     name: Deploy App
     needs: publish-sign
     if: github.ref == 'refs/heads/main' && vars.ENABLE_APP_DEPLOY == 'true'
-    environment: app-deploy
+    environment: app-deployment
     # This runner must reach the private EKS API and have Helm, kubectl and AWS CLI.
     runs-on: [self-hosted, linux, tasky-eks]
     timeout-minutes: 30

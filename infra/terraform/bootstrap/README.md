@@ -8,15 +8,15 @@ access keys, DynamoDB, or another application registry. All taggable resources r
 
 | Role | GitHub environment | Access |
 | --- | --- | --- |
-| `tasky-wiz-ci-plan` | `terraform-plan` | Discovery metadata, read infrastructure state, write locks and plans |
-| `tasky-wiz-ci-apply` | `terraform-apply` | Apply infrastructure, write state, read saved plans |
-| `tasky-wiz-ci-app` | `app-deploy` | Describe the named cluster; infrastructure stack adds EKS admin in namespace `tasky` |
+| `tasky-wiz-ci-plan` | `infra-deplyoment` | Discovery metadata, read infrastructure state, write locks and plans |
+| `tasky-wiz-ci-apply` | `infra-deplyoment` | Apply infrastructure, write state, read saved plans |
+| `tasky-wiz-ci-app` | `app-deployment` | Describe the named cluster; infrastructure stack adds EKS admin in namespace `tasky` |
 
 OIDC trusts match the exact, case-sensitive repository, environment and STS audience.
 Normal deployment uses OIDC; initial bootstrap uses separately supplied AWS credentials.
 Environment subjects do not themselves
-restrict branches: configure **all three environments to allow only `main`**. Require
-reviewers for `terraform-apply` and `app-deploy`, prevent self-review and disable bypass
+restrict branches: configure **both deployment environments to allow only `main`**. Require
+reviewers for `infra-deplyoment` and `app-deployment`, prevent self-review and disable bypass
 where supported. These repository settings must be configured before enabling deployment.
 
 The apply role is privileged within this dedicated sandbox/region: network creation
@@ -138,18 +138,27 @@ Set `ENABLE_INFRA_DEPLOY=true` only after configuring the environments above.
 
 Infrastructure CI validates the infrastructure stack; PRs scan without AWS credentials.
 The separate manual bootstrap workflow validates/tests bootstrap before authenticating. Main runs
-plan using `terraform-plan`; manual dispatch with `apply=true` applies the exact saved
-plan after `terraform-apply` approval. Plans are stored in the private state bucket,
+plan using `infra-deplyoment`; manual dispatch with `apply=true` applies the exact saved
+plan after `infra-deplyoment` approval. Plans are stored in the private state bucket,
 not public GitHub artifacts. The existing plan guard rejects deletes/replacements.
 Bootstrap IAM permissions are checked by mocked Terraform tests in CI; an AWS plan
 validates API reads but is not proof that every create/update API will be authorized.
 
 The app workflow publishes to GHCR and has an opt-in AWS deployment job using
-`app-deploy`. Set `APP_HOSTED_ZONE_ID` in bootstrap and rerun bootstrap apply after
+`app-deployment`. Set `APP_HOSTED_ZONE_ID` in bootstrap and rerun bootstrap apply after
 creating the domain to grant narrowly scoped DNS and app-DNS state permissions.
 The role still cannot read infrastructure, bootstrap or registrar state. See
 [domain and HTTPS setup](../domain/registration/README.md) for APP_DOMAIN, certificate,
 subnet variables and enabling `ENABLE_APP_DEPLOY`.
+
+When migrating from the previous environment names, create `infra-deplyoment` and
+`app-deployment` first and copy their variables/secrets. Put both
+`AWS_TF_PLAN_ROLE_ARN` and `AWS_TF_APPLY_ROLE_ARN` in `infra-deplyoment`.
+Rerun Bootstrap Infra with apply enabled to update the OIDC trust policies before
+running deployments. The role names and Terraform state keys remain unchanged.
+Both infrastructure jobs use the same protected environment, so planning is also
+subject to its approval rules. Separate role permissions remain, but the shared OIDC
+subject no longer isolates the plan role from the apply role by environment.
 
 The runner needs private network connectivity to the EKS API. An ordinary GitHub-hosted
 runner cannot reach the private endpoint by default; this stack creates no runner fleet.

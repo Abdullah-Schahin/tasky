@@ -104,7 +104,7 @@ state migration and environment protection requirements.
 The `include-domain` option in `infra-ci-cd.yaml` is manually triggered on main in the protected bootstrap environment.
 It registers `abu-pse.link` only with apply checked, adopts the registration-created
 zone and provisions an ACM certificate for `tasky.abu-pse.link`. Registration contacts
-come from `DOMAIN_CONTACT_JSON`; the app hostname comes from app-deploy secret
+come from `DOMAIN_CONTACT_JSON`; the app hostname comes from app-deployment secret
 `APP_DOMAIN`. The opt-in app deployment job verifies the signed release, deploys Helm
 on a runner with private EKS connectivity, then applies the ALB DNS alias stack.
 See [complete setup](../../infra/terraform/domain/registration/README.md).

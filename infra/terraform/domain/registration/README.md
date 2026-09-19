@@ -74,8 +74,8 @@ The Infra CI/CD domain job summary provides the certificate ARN and hosted zone 
 1. Set **`APP_HOSTED_ZONE_ID`** in `bootstrap` and run **Bootstrap Infra** with apply.
    This grants the app role permission to change only the A record
    `tasky.abu-pse.link` in that zone and use its isolated app-DNS state key.
-2. In **`app-deploy`**, set secret **`APP_DOMAIN=tasky.abu-pse.link`**.
-3. Set these `app-deploy` variables:
+2. In **`app-deployment`**, set secret **`APP_DOMAIN=tasky.abu-pse.link`**.
+3. Set these `app-deployment` variables:
 
 | Variable | Source |
 | --- | --- |
@@ -95,7 +95,7 @@ The Infra CI/CD domain job summary provides the certificate ARN and hosted zone 
    private, configure a namespace image pull secret/SA before deployment; runner
    registry login does not grant image-pull access to EKS nodes.
 6. Enable repository variable **`ENABLE_APP_DEPLOY=true`** once those prerequisites
-   are ready. Restrict app-deploy to main and require reviewers.
+   are ready. Restrict app-deployment to main and require reviewers.
 
 After publish/sign succeeds, the app workflow verifies the digest's signature using
 this repository's main-branch workflow identity, assumes the app role, generates Helm

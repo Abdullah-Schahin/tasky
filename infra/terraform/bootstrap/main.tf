@@ -15,7 +15,7 @@ locals {
   account_arn       = "${local.arn}:iam::${var.account_id}"
   bucket_name       = "${var.prefix}-tfstate-${var.account_id}-${var.region}"
   bucket_arn        = "${local.arn}:s3:::${local.bucket_name}"
-  environments      = { plan = "terraform-plan", apply = "terraform-apply", app = "app-deploy" }
+  environments      = { plan = "infra-deplyoment", apply = "infra-deplyoment", app = "app-deployment" }
   oidc_arn          = var.github_oidc_provider_arn != null ? var.github_oidc_provider_arn : aws_iam_openid_connect_provider.github[0].arn
   workload_roles    = [for name in ["eks", "nodes", "mongodb", "config", "load-balancer-controller"] : "${local.account_arn}:role/${var.prefix}-${name}"]
   workload_policies = [for name in ["mongodb-privilege-creep", "load-balancer-controller"] : "${local.account_arn}:policy/${var.prefix}-${name}"]
