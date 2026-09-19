@@ -16,13 +16,13 @@ locals {
   bucket_name       = "${var.prefix}-tfstate-${var.account_id}-${var.region}"
   bucket_arn        = "${local.arn}:s3:::${local.bucket_name}"
   environments      = { plan = "infra-deplyoment", apply = "infra-deplyoment", app = "app-deployment" }
-  oidc_arn          = var.github_oidc_provider_arn != null ? var.github_oidc_provider_arn : aws_iam_openid_connect_provider.github[0].arn
+  oidc_arn          = var.AWS_GITHUB_OIDC_PROVIDER_ARN != null ? var.AWS_GITHUB_OIDC_PROVIDER_ARN : aws_iam_openid_connect_provider.github[0].arn
   workload_roles    = [for name in ["eks", "nodes", "mongodb", "config", "load-balancer-controller"] : "${local.account_arn}:role/${var.prefix}-${name}"]
   workload_policies = [for name in ["mongodb-privilege-creep", "load-balancer-controller"] : "${local.account_arn}:policy/${var.prefix}-${name}"]
   managed_policies  = [for name in ["AmazonEKSClusterPolicy", "AmazonEKSWorkerNodePolicy", "AmazonEC2ContainerRegistryPullOnly", "AmazonEKS_CNI_Policy", "service-role/AWS_ConfigRole"] : "${local.arn}:iam::aws:policy/${name}"]
 }
 resource "aws_iam_openid_connect_provider" "github" {
-  count          = var.github_oidc_provider_arn == null ? 1 : 0
+  count          = var.AWS_GITHUB_OIDC_PROVIDER_ARN == null ? 1 : 0
   url            = "https://token.actions.githubusercontent.com"
   client_id_list = ["sts.amazonaws.com"]
 }

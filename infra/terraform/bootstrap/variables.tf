@@ -22,12 +22,12 @@ variable "github_repository" {
     error_message = "Supply owner/repository without wildcards."
   }
 }
-variable "github_oidc_provider_arn" {
+variable "AWS_GITHUB_OIDC_PROVIDER_ARN" {
   type        = string
   default     = null
   description = "Reuse the account's existing GitHub OIDC provider if present."
   validation {
-    condition     = var.github_oidc_provider_arn == null || var.github_oidc_provider_arn == "arn:aws:iam::${var.account_id}:oidc-provider/token.actions.githubusercontent.com"
+    condition     = var.AWS_GITHUB_OIDC_PROVIDER_ARN == null || var.AWS_GITHUB_OIDC_PROVIDER_ARN == "arn:aws:iam::${var.account_id}:oidc-provider/token.actions.githubusercontent.com"
     error_message = "Use this account's GitHub OIDC provider ARN."
   }
 }

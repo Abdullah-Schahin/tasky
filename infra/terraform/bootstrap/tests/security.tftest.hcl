@@ -57,7 +57,7 @@ run "policy_size_limits" {
 run "reuse_existing_oidc" {
   command = plan
   variables {
-    github_oidc_provider_arn = "arn:aws:iam::516027198761:oidc-provider/token.actions.githubusercontent.com"
+    AWS_GITHUB_OIDC_PROVIDER_ARN = "arn:aws:iam::516027198761:oidc-provider/token.actions.githubusercontent.com"
   }
   assert {
     condition     = length(aws_iam_openid_connect_provider.github) == 0

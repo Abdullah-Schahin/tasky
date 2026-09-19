@@ -61,7 +61,7 @@ def prepare(mode, env):
         prefix = env.get('BOOTSTRAP_PREFIX') or 'tasky-wiz'
         repository = env.get('GITHUB_REPOSITORY', '')
         key = env.get('TF_STATE_KEY') or 'infra/terraform.tfstate'
-        oidc = env.get('GITHUB_OIDC_PROVIDER_ARN') or None
+        oidc = env.get('AWS_GITHUB_OIDC_PROVIDER_ARN') or None
         zone = env.get('APP_HOSTED_ZONE_ID') or None
         require(re.fullmatch(r'[a-z][a-z0-9-]{2,19}', prefix), 'Invalid BOOTSTRAP_PREFIX')
         require(re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+', repository), 'Invalid GitHub repository')
@@ -70,7 +70,7 @@ def prepare(mode, env):
         require(zone is None or re.fullmatch(r'Z[A-Z0-9]+', zone), 'Invalid APP_HOSTED_ZONE_ID')
         private_json(ROOTS[mode]/'ci.auto.tfvars.json', dict(account_id=account, region=region,
             prefix=prefix, github_repository=repository, state_key=key,
-            github_oidc_provider_arn=oidc, app_dns_zone_id=zone))
+            AWS_GITHUB_OIDC_PROVIDER_ARN=oidc, app_dns_zone_id=zone))
         bucket = f'{prefix}-tfstate-{account}-{region}'
         write_backend(temp/'bootstrap-backend.hcl', bucket, 'bootstrap/terraform.tfstate', region, account)
         with open(env['GITHUB_ENV'], 'a') as output:

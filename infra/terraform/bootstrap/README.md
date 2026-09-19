@@ -46,7 +46,7 @@ Configure these environment variables (repository variables also work):
 | `AWS_REGION` | Required | Target commercial AWS region, e.g. `us-east-1` |
 | `BOOTSTRAP_PREFIX` | `tasky-wiz` | Must match the infrastructure stack prefix |
 | `TF_STATE_KEY` | `infra/terraform.tfstate` | Infrastructure state path, always under `infra/` |
-| `GITHUB_OIDC_PROVIDER_ARN` | Empty | Set only to reuse an existing account-level GitHub OIDC provider |
+| `AWS_GITHUB_OIDC_PROVIDER_ARN` | Empty | Set only to reuse an existing account-level GitHub OIDC provider |
 | `APP_HOSTED_ZONE_ID` | Empty | Set after domain setup to grant the app role narrowly scoped DNS permissions |
 
 The repository identity comes from `github.repository`; no owner/repository variable
