@@ -1,5 +1,6 @@
 resource "aws_iam_role" "mongodb" {
-  name = "${var.prefix}-mongodb"
+  permissions_boundary = var.workload_permissions_boundary_arn
+  name                 = "${var.prefix}-mongodb"
   assume_role_policy = jsonencode({ Version = "2012-10-17", Statement = [{
     Effect = "Allow", Principal = { Service = "ec2.amazonaws.com" }, Action = "sts:AssumeRole"
   }] })

@@ -18,3 +18,7 @@ existing_cloudtrail_arn = "arn:aws:cloudtrail:us-east-2:525391386877:trail/manag
 enable_config          = true
 enable_security_hub    = false
 enable_guardduty       = false
+
+# Set these from infra/bootstrap outputs before enabling AWS CI/CD.
+# workload_permissions_boundary_arn = "arn:aws:iam::516027198761:policy/tasky-wiz-workload-boundary"
+# app_deploy_role_arn = "arn:aws:iam::516027198761:role/tasky-wiz-ci-app"

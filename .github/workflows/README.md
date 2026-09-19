@@ -89,3 +89,12 @@ python3 -m unittest discover -s tests -p 'test_security_reporting.py'
 Reusable jobs change the displayed check names. Update branch protection/rulesets to
 require the appropriate `Source security` and `Image security` nested gate checks after
 the first GitHub run. Local validation does not post comments or trigger workflows.
+
+## Manual AWS bootstrap
+
+`bootstrap.yaml` runs only through **Run workflow** on `main`. Select the account's
+GitHub environment and choose plan or apply. Account/region/prefix come from variables;
+initial AWS credentials come from environment secrets. It initializes private S3 state
+on the first run, retains it for subsequent runs, and blocks deletes/replacements.
+See [bootstrap setup](../../infra/bootstrap/README.md) for the exact variables, secrets,
+state migration and environment protection requirements.

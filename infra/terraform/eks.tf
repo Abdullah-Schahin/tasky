@@ -1,5 +1,6 @@
 resource "aws_iam_role" "eks" {
-  name = "${var.prefix}-eks"
+  permissions_boundary = var.workload_permissions_boundary_arn
+  name                 = "${var.prefix}-eks"
   assume_role_policy = jsonencode({ Version = "2012-10-17", Statement = [{
     Effect = "Allow", Principal = { Service = "eks.amazonaws.com" }, Action = "sts:AssumeRole"
   }] })
@@ -41,7 +42,8 @@ resource "aws_eks_access_policy_association" "operator" {
   access_scope { type = "cluster" }
 }
 resource "aws_iam_role" "nodes" {
-  name = "${var.prefix}-nodes"
+  permissions_boundary = var.workload_permissions_boundary_arn
+  name                 = "${var.prefix}-nodes"
   assume_role_policy = jsonencode({ Version = "2012-10-17", Statement = [{
     Effect = "Allow", Principal = { Service = "ec2.amazonaws.com" }, Action = "sts:AssumeRole"
   }] })
@@ -112,7 +114,8 @@ resource "aws_iam_openid_connect_provider" "eks" {
   thumbprint_list = [data.tls_certificate.eks.certificates[0].sha1_fingerprint]
 }
 resource "aws_iam_role" "load_balancer_controller" {
-  name = "${var.prefix}-load-balancer-controller"
+  permissions_boundary = var.workload_permissions_boundary_arn
+  name                 = "${var.prefix}-load-balancer-controller"
   assume_role_policy = jsonencode({ Version = "2012-10-17", Statement = [{
     Effect    = "Allow", Action = "sts:AssumeRoleWithWebIdentity",
     Principal = { Federated = aws_iam_openid_connect_provider.eks.arn },
@@ -137,5 +140,23 @@ resource "aws_autoscaling_group_tag" "nodes" {
     key                 = each.key
     value               = each.value
     propagate_at_launch = true
+  }
+}
+
+# Keep this in the infrastructure stack: the bootstrap stack has no EKS dependency.
+resource "aws_eks_access_entry" "app_deploy" {
+  count         = var.app_deploy_role_arn == null ? 0 : 1
+  cluster_name  = aws_eks_cluster.main.name
+  principal_arn = var.app_deploy_role_arn
+  type          = "STANDARD"
+}
+resource "aws_eks_access_policy_association" "app_deploy" {
+  count         = var.app_deploy_role_arn == null ? 0 : 1
+  cluster_name  = aws_eks_cluster.main.name
+  principal_arn = aws_eks_access_entry.app_deploy[0].principal_arn
+  policy_arn    = "${local.aws_prefix}:eks::aws:cluster-access-policy/AmazonEKSAdminPolicy"
+  access_scope {
+    type       = "namespace"
+    namespaces = ["tasky"]
   }
 }

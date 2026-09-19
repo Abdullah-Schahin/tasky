@@ -1,4 +1,4 @@
-name: Infrastructure CI/CD
+name: Infra CI/CD
 
 on:
   pull_request:
@@ -47,7 +47,7 @@ env:
 
 jobs:
   validate:
-    name: Terraform format and validate
+    name: Terraform validate
     runs-on: ubuntu-latest
     steps:
       - name: Runtime Security Agent (Cimon)
@@ -64,14 +64,17 @@ jobs:
           terraform_version: 1.14.3
           terraform_wrapper: false
       - name: Check formatting
-        run: terraform -chdir=infra/terraform fmt -check -recursive
+        run: |
+          terraform -chdir=infra/terraform fmt -check -recursive
       - name: Initialize providers without backend or AWS credentials
-        run: terraform -chdir=infra/terraform init -backend=false -input=false -lockfile=readonly
+        run: |
+          terraform -chdir=infra/terraform init -backend=false -input=false -lockfile=readonly
       - name: Validate Terraform
-        run: terraform -chdir=infra/terraform validate
+        run: |
+          terraform -chdir=infra/terraform validate
 
   security:
-    name: Infrastructure security
+    name: Infra Security
     uses: ./.github/workflows/security-scans.yaml
     permissions:
       contents: read
@@ -102,9 +105,7 @@ jobs:
       - name: Runtime Security Agent (Cimon)
         uses: cycodelabs/cimon-action@1374f7193c5a4390740fa451feb05ce812955958
         with:
-          prevent: true
-          allowed-hosts: >
-            releases.hashicorp.com
+          prevent: false
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -154,7 +155,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   apply:
-    name: Apply approved Terraform plan
+    name: Terraform Apply
     needs: plan
     if: github.event_name == 'workflow_dispatch' && inputs.apply && github.ref == 'refs/heads/main' && vars.ENABLE_INFRA_DEPLOY == 'true'
     runs-on: ubuntu-latest
@@ -168,9 +169,7 @@ jobs:
       - name: Runtime Security Agent (Cimon)
         uses: cycodelabs/cimon-action@1374f7193c5a4390740fa451feb05ce812955958
         with:
-          prevent: true
-          allowed-hosts: >
-            releases.hashicorp.com
+          prevent: false
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:

@@ -1,6 +1,7 @@
 resource "aws_iam_role" "config" {
-  count = var.enable_config ? 1 : 0
-  name  = "${var.prefix}-config"
+  permissions_boundary = var.workload_permissions_boundary_arn
+  count                = var.enable_config ? 1 : 0
+  name                 = "${var.prefix}-config"
   assume_role_policy = jsonencode({ Version = "2012-10-17", Statement = [{
     Effect    = "Allow", Principal = { Service = "config.amazonaws.com" }, Action = "sts:AssumeRole",
     Condition = { StringEquals = { "aws:SourceAccount" = var.account_id } }

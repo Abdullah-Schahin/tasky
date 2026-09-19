@@ -82,6 +82,17 @@
           "type": "string"
         }
       }
+    },
+    "clusterResources": {
+      "type": "object",
+      "properties": {
+        "create": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "create"
+      ]
     }
   },
   "allOf": [

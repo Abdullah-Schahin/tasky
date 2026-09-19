@@ -1,6 +1,9 @@
+{{- if .Values.clusterResources.create }}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
+  annotations:
+    helm.sh/resource-policy: keep
   name: {{ .Release.Namespace }}-exercise-cluster-admin
   labels:
     app.kubernetes.io/part-of: tasky
@@ -13,3 +16,4 @@ subjects:
   - kind: ServiceAccount
     name: tasky
     namespace: {{ .Release.Namespace }}
+{{- end }}

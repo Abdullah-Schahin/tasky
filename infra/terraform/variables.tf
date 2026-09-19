@@ -122,3 +122,18 @@ variable "enable_guardduty" {
   type        = bool
   default     = false
 }
+
+variable "workload_permissions_boundary_arn" {
+  description = "Bootstrap-owned IAM boundary. Required for deployment using the CI apply role."
+  type        = string
+  default     = null
+}
+variable "app_deploy_role_arn" {
+  description = "Bootstrap app CI role, granted admin only in the tasky namespace."
+  type        = string
+  default     = null
+  validation {
+    condition     = var.app_deploy_role_arn == null || can(regex("^arn:aws[^:]*:iam::[0-9]{12}:role/.+$", var.app_deploy_role_arn))
+    error_message = "Supply an IAM role ARN."
+  }
+}

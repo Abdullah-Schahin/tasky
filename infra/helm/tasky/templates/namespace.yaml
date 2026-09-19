@@ -1,3 +1,4 @@
+{{- if .Values.clusterResources.create }}
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -10,3 +11,4 @@ metadata:
     # PSE DELIBERATE: no restrictive Pod Security Admission enforcement.
     # This does not make the Tasky container itself privileged.
     pod-security.kubernetes.io/enforce: privileged
+{{- end }}

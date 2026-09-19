@@ -22,3 +22,7 @@ mongo:
 # AWS MongoDB uses a dedicated CA; leave empty for local MongoDB.
 mongodbTLS:
   existingSecret: ""
+
+# An operator installs these once in AWS. App CI then sets this to false.
+clusterResources:
+  create: true

@@ -36,3 +36,6 @@ crash.*.log
 
 # Local exercise SSH key and generated deployment inputs
 .local/
+
+# Generated only by the manual bootstrap workflow
+infra/bootstrap/backend.ci.tf

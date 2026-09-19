@@ -32,7 +32,7 @@ Terraform creates only the app's VPC/routes/NAT, EKS with two workers, ECR, Mong
 instance and credentials/key-pair, backup bucket, private audit destination, necessary
 IAM and security groups, and AWS Config. Security Hub and GuardDuty are optional and
 **off by default**. There is no Terraform-created ALB, Route 53 zone, ACM certificate,
-extra bastion, standalone guardrail demo bucket, VPC endpoint fleet, or infra CI/CD.
+extra bastion, standalone guardrail demo bucket, VPC endpoint fleet, or redundant audit services. CI bootstrap is maintained separately in `../bootstrap`.
 The existing secure audit bucket also serves as the separate preventive-control example.
 
 The controller's IAM policy is vendored verbatim from the official
@@ -105,7 +105,7 @@ cp infra/terraform/terraform.tfvars.example infra/terraform/terraform.tfvars
 chmod 600 infra/terraform/terraform.tfvars
 # Set ssh_public_key to the .pub contents and verify every sandbox-specific value.
 export AWS_PROFILE=wiz
-terraform -chdir=infra/terraform init
+terraform -chdir=infra/terraform init -backend-config=../../.local/tasky-wiz/backend.hcl
 terraform -chdir=infra/terraform fmt -check
 terraform -chdir=infra/terraform validate
 terraform -chdir=infra/terraform plan -out=tasky.tfplan
@@ -117,8 +117,12 @@ terraform -chdir=infra/terraform apply tasky.tfplan
 ```
 
 State, plans, `.terraform`, private keys and `.tfvars` are ignored. Keep the lockfile in
-Git. Local state still contains infrastructure metadata; store it securely. A remote
-backend is deliberately not provisioned as an extra resource for this small lab.
+Git. First follow [the bootstrap instructions](../bootstrap/README.md) to create private
+state storage. For local commands, write `.local/tasky-wiz/backend.hcl` using the
+bucket, region and `infra/` key from the bootstrap summary, with `encrypt=true`,
+`use_lockfile=true` and `allowed_account_ids=["<your-account-id>"]`. Set the boundary and app role
+inputs from the bootstrap outputs. Existing local state must be migrated using
+`terraform init -migrate-state` with that backend configuration, not discarded.
 
 ## MongoDB and credentials
 
@@ -287,7 +291,7 @@ Remove the controller Helm release before deleting EKS. Review `terraform plan -
 before any teardown. Buckets and ECR deliberately have `force_destroy/force_delete=false`:
 empty demo backups, audit object versions/delete markers, and images only after deciding
 what evidence to retain. Secrets have a seven-day recovery window. Reused organization
-CloudTrail is not owned by this stack and will not be deleted. Keep local state until
+CloudTrail is not owned by this stack and will not be deleted. Retain remote state and the separate bootstrap state until
 cleanup is complete. NAT, EKS, nodes, public IPv4, logs, Config and storage incur charges.
 
 ## Primary references

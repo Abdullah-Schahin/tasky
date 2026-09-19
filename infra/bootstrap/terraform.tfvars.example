@@ -1,0 +1,6 @@
+region = "us-east-1"
+account_id = "516027198761"
+github_repository = "Abdullah-Schahin/tasky"
+prefix = "tasky-wiz"
+# Set this if the account already has a GitHub provider; do not create a duplicate.
+# github_oidc_provider_arn = "arn:aws:iam::516027198761:oidc-provider/token.actions.githubusercontent.com"
