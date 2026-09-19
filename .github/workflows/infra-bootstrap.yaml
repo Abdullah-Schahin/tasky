@@ -45,6 +45,7 @@ jobs:
             checkpoint-api.hashicorp.com
             registry.terraform.io
             releases.hashicorp.com
+            tasky-wiz-tfstate-${{ vars.AWS_ACCOUNT_ID }}-us-east-1.s3.us-east-1.amazonaws.com
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
