@@ -5,10 +5,10 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
     branches: [main]
-    paths-ignore: ["infra/cloud/**", "**.md"]
+    paths-ignore: ["infra/terraform/**", "**.md"]
   push:
     branches: [main]
-    paths-ignore: ["infra/cloud/**", "**.md"]
+    paths-ignore: ["infra/terraform/**", "**.md"]
 
 env:
   REGISTRY: ghcr.io

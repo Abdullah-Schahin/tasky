@@ -62,12 +62,12 @@ def prepare(mode, env):
         repository = env.get('GITHUB_REPOSITORY', '')
         key = env.get('TF_STATE_KEY') or 'infra/terraform.tfstate'
         oidc = env.get('AWS_GITHUB_OIDC_PROVIDER_ARN') or None
-        zone = env.get('APP_HOSTED_ZONE_ID') or None
+        zone = (env.get('APP_HOSTED_ZONE_ID') or '').strip().removeprefix('/hostedzone/') or None
         require(re.fullmatch(r'[a-z][a-z0-9-]{2,19}', prefix), 'Invalid BOOTSTRAP_PREFIX')
         require(re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+', repository), 'Invalid GitHub repository')
         require(re.fullmatch(r'infra/[A-Za-z0-9/_-]+\.tfstate', key), 'TF_STATE_KEY must be under infra/ and end in .tfstate')
         require(oidc is None or oidc == f'arn:aws:iam::{account}:oidc-provider/token.actions.githubusercontent.com', 'OIDC provider must belong to this account')
-        require(zone is None or re.fullmatch(r'Z[A-Z0-9]+', zone), 'Invalid APP_HOSTED_ZONE_ID')
+        require(zone is None or re.fullmatch(r'Z[A-Z0-9]+', zone), 'APP_HOSTED_ZONE_ID must be a Route 53 hosted zone ID starting with Z, not a domain name or ARN. Remove the GitHub variable from environment/repository/organization settings until the hosted zone exists.')
         private_json(ROOTS[mode]/'ci.auto.tfvars.json', dict(account_id=account, region=region,
             prefix=prefix, github_repository=repository, state_key=key,
             AWS_GITHUB_OIDC_PROVIDER_ARN=oidc, app_dns_zone_id=zone))
