@@ -39,3 +39,13 @@ variable "state_key" {
     error_message = "Use a state path under infra/, ending in .tfstate."
   }
 }
+
+variable "app_dns_zone_id" {
+  description = "Public hosted zone from domain-tls; null leaves app DNS deployment disabled."
+  type        = string
+  default     = null
+  validation {
+    condition     = var.app_dns_zone_id == null || can(regex("^Z[A-Z0-9]+$", var.app_dns_zone_id))
+    error_message = "Supply a Route 53 zone ID."
+  }
+}

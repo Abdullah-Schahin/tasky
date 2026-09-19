@@ -38,4 +38,4 @@ crash.*.log
 .local/
 
 # Generated only by the manual bootstrap workflow
-infra/bootstrap/backend.ci.tf
+infra/terraform/bootstrap/backend.ci.tf

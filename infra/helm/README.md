@@ -114,13 +114,12 @@ The placeholders deliberately fail validation until replaced.
 
 ```sh
 helm lint infra/helm/tasky -f infra/local/values.yaml
-python3 -m unittest discover -s tests -p 'test_k8s_manifests.py'
 ```
 
-The prepared EKS deployment blocks in the infrastructure workflows remain commented
-out. They invoke Helm directly using `APP_HOST`, `ACM_CERTIFICATE_ARN`, comma-separated
-`PUBLIC_SUBNET_IDS`, and optional `GHCR_PULL_SECRET` repository variables. Configure
-Helm on the runner and a verified release image output before enabling deployment.
+The opt-in AWS app deployment job reads secret `APP_DOMAIN`, variable
+`ACM_CERTIFICATE_ARN`, and JSON-array variable `PUBLIC_SUBNET_IDS`, then generates
+Helm values for the signed image digest. Configure the private EKS runner and
+follow the [domain setup](../terraform/domain/registration/README.md) before enabling it.
 Namespace/Secret bootstrapping and initial Helm adoption are manual prerequisites.
 
 ## Demo and evidence
@@ -185,3 +184,11 @@ Confirm ALB and target group cleanup in AWS; external MongoDB data remains intac
 References: [AWS ALB annotations](https://kubernetes-sigs.github.io/aws-load-balancer-controller/latest/guide/ingress/annotations/),
 [AWS private node subnet guidance](https://docs.aws.amazon.com/eks/latest/best-practices/subnets.html),
 [Kubernetes Pod Security Admission](https://kubernetes.io/docs/concepts/security/pod-security-admission/).
+
+## Managed domain and certificate
+
+The Infra CI/CD domain job now provisions `abu-pse.link` and an ACM certificate for
+`tasky.abu-pse.link`. The optional app deployment job supplies the hostname from
+`APP_DOMAIN` and the certificate ARN from `ACM_CERTIFICATE_ARN` to this chart, then
+points the Route 53 app alias at the controller-created ALB. See the
+[domain setup](../terraform/domain/registration/README.md) for the required workflow configuration.

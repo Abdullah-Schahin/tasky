@@ -47,6 +47,7 @@ Configure these environment variables (repository variables also work):
 | `BOOTSTRAP_PREFIX` | `tasky-wiz` | Must match the infrastructure stack prefix |
 | `TF_STATE_KEY` | `infra/terraform.tfstate` | Infrastructure state path, always under `infra/` |
 | `GITHUB_OIDC_PROVIDER_ARN` | Empty | Set only to reuse an existing account-level GitHub OIDC provider |
+| `APP_HOSTED_ZONE_ID` | Empty | Set after domain setup to grant the app role narrowly scoped DNS permissions |
 
 The repository identity comes from `github.repository`; no owner/repository variable
 or hard-coded account ID is needed in the workflow. The state bucket name is derived
@@ -115,14 +116,14 @@ available for this) and migrate the local state:
 export AWS_PROFILE=wiz
 # backend.hcl must point to the existing bucket, with key="bootstrap/terraform.tfstate",
 # encrypt=true, use_lockfile=true and the expected region/account.
-terraform -chdir=infra/bootstrap init -migrate-state -backend-config=/path/to/backend.hcl
+terraform -chdir=infra/terraform/bootstrap init -migrate-state -backend-config=/path/to/backend.hcl
 ```
 
 Keep an encrypted backup of the original state and verify migration before running Actions.
 Fresh local-only bootstrap is still supported using `terraform.tfvars.example` and the
 local backend; Actions generates its backend file only on the runner.
 
-Copy the `infrastructure_inputs` output into `infra/terraform/terraform.tfvars` for local
+Copy the `infrastructure_inputs` output into `infra/terraform/platform/terraform.tfvars` for local
 runs and into GitHub `TFVARS_JSON` for CI. These are ARNs, not credentials. The
 `backend_config` Terraform output is for **infrastructure**, with the `infra/` state key;
 do not use it as the bootstrap backend. Existing local infrastructure state also requires
@@ -143,16 +144,12 @@ not public GitHub artifacts. The existing plan guard rejects deletes/replacement
 Bootstrap IAM permissions are checked by mocked Terraform tests in CI; an AWS plan
 validates API reads but is not proof that every create/update API will be authorized.
 
-The app workflow currently publishes to GHCR. The app role adds no ECR push permissions
-and this change does not add an AWS app deployment job. When adding it, use environment
-`app-deploy`, `permissions: { contents: read, id-token: write }`, the existing SHA-pinned
-AWS credentials action with `vars.AWS_APP_DEPLOY_ROLE_ARN`, then:
-
-```sh
-aws eks update-kubeconfig --name tasky-wiz --region "$AWS_REGION"
-helm upgrade --install tasky infra/helm/tasky -n tasky \
-  -f /path/to/real-aws-values.yaml --set clusterResources.create=false --wait
-```
+The app workflow publishes to GHCR and has an opt-in AWS deployment job using
+`app-deploy`. Set `APP_HOSTED_ZONE_ID` in bootstrap and rerun bootstrap apply after
+creating the domain to grant narrowly scoped DNS and app-DNS state permissions.
+The role still cannot read infrastructure, bootstrap or registrar state. See
+[domain and HTTPS setup](../domain/registration/README.md) for APP_DOMAIN, certificate,
+subnet variables and enabling `ENABLE_APP_DEPLOY`.
 
 The runner needs private network connectivity to the EKS API. An ordinary GitHub-hosted
 runner cannot reach the private endpoint by default; this stack creates no runner fleet.
@@ -183,15 +180,13 @@ intentional escalation path in a production setup.
 ## Validation
 
 ```sh
-terraform -chdir=infra/bootstrap fmt -check -recursive
-terraform -chdir=infra/bootstrap test
+terraform -chdir=infra/terraform/bootstrap fmt -check -recursive
+terraform -chdir=infra/terraform/bootstrap test
 ```
 
 The tests use a mocked AWS provider; their `apply` commands create no AWS resources.
 They check exact OIDC subjects, state protection, plan/app separation, MongoDB state
 exclusion, mandatory boundaries, and reuse of existing OIDC providers.
-`python3 -m unittest discover -s tests -p 'test_bootstrap_workflow.py'` tests workflow
-configuration and first-run storage safeguards with mocked AWS calls.
 
 References: [GitHub OIDC trust](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_create_for-idp_oidc.html),
 [S3 backend and lock permissions](https://developer.hashicorp.com/terraform/language/backend/s3),

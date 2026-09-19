@@ -32,7 +32,7 @@ jobs:
     with:
       report-prefix: terraform
       trufflehog: true
-      working-directory: infra/terraform
+      working-directory: infra/terraform/platform
 ```
 
 This example enables secret scanning only; it does not claim to scan Terraform
@@ -83,7 +83,7 @@ behavior. Infrastructure changes also trigger the app pipeline.
 ## Validation and required checks
 
 ```sh
-python3 -m unittest discover -s tests -p 'test_security_reporting.py'
+terraform -chdir=infra/terraform fmt -check -recursive
 ```
 
 Reusable jobs change the displayed check names. Update branch protection/rulesets to
@@ -92,9 +92,19 @@ the first GitHub run. Local validation does not post comments or trigger workflo
 
 ## Manual AWS bootstrap
 
-`bootstrap.yaml` runs only through **Run workflow** on `main`. Select the account's
+`infra-bootstrap.yaml` runs only through **Run workflow** on `main`. Select the account's
 GitHub environment and choose plan or apply. Account/region/prefix come from variables;
 initial AWS credentials come from environment secrets. It initializes private S3 state
 on the first run, retains it for subsequent runs, and blocks deletes/replacements.
-See [bootstrap setup](../../infra/bootstrap/README.md) for the exact variables, secrets,
+See [bootstrap setup](../../infra/terraform/bootstrap/README.md) for the exact variables, secrets,
 state migration and environment protection requirements.
+
+## Domain and app HTTPS
+
+The `include-domain` option in `infra-ci-cd.yaml` is manually triggered on main in the protected bootstrap environment.
+It registers `abu-pse.link` only with apply checked, adopts the registration-created
+zone and provisions an ACM certificate for `tasky.abu-pse.link`. Registration contacts
+come from `DOMAIN_CONTACT_JSON`; the app hostname comes from app-deploy secret
+`APP_DOMAIN`. The opt-in app deployment job verifies the signed release, deploys Helm
+on a runner with private EKS connectivity, then applies the ALB DNS alias stack.
+See [complete setup](../../infra/terraform/domain/registration/README.md).

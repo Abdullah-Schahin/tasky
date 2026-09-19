@@ -61,7 +61,7 @@ still need apply-time verification. Do not assume Organizations administration i
 available. `preflight.py` inventories existing services without fetching secret values:
 
 ```sh
-python3 infra/terraform/preflight.py --profile wiz --region us-east-1 \
+python3 .github/scripts/aws-preflight.py --profile wiz --region us-east-1 \
   --account-id 516027198761
 ```
 
@@ -101,19 +101,19 @@ mkdir -p .local/tasky-wiz
 chmod 700 .local/tasky-wiz
 # Do not overwrite an existing key used by a deployed instance.
 ssh-keygen -t ed25519 -f .local/tasky-wiz/mongodb -C tasky-wiz-mongodb
-cp infra/terraform/terraform.tfvars.example infra/terraform/terraform.tfvars
-chmod 600 infra/terraform/terraform.tfvars
+cp infra/terraform/platform/terraform.tfvars.example infra/terraform/platform/terraform.tfvars
+chmod 600 infra/terraform/platform/terraform.tfvars
 # Set ssh_public_key to the .pub contents and verify every sandbox-specific value.
 export AWS_PROFILE=wiz
-terraform -chdir=infra/terraform init -backend-config=../../.local/tasky-wiz/backend.hcl
-terraform -chdir=infra/terraform fmt -check
-terraform -chdir=infra/terraform validate
-terraform -chdir=infra/terraform plan -out=tasky.tfplan
-terraform -chdir=infra/terraform show tasky.tfplan
-terraform -chdir=infra/terraform show -json tasky.tfplan > /tmp/tasky-plan.json
-python3 infra/terraform/check-plan.py /tmp/tasky-plan.json
+terraform -chdir=infra/terraform/platform init -backend-config=../../../.local/tasky-wiz/backend.hcl
+terraform -chdir=infra/terraform/platform fmt -check
+terraform -chdir=infra/terraform/platform validate
+terraform -chdir=infra/terraform/platform plan -out=tasky.tfplan
+terraform -chdir=infra/terraform/platform show tasky.tfplan
+terraform -chdir=infra/terraform/platform show -json tasky.tfplan > /tmp/tasky-plan.json
+python3 .github/scripts/terraform-plan-check.py /tmp/tasky-plan.json
 # Apply only after reviewing the concrete plan and sandbox costs/permissions.
-terraform -chdir=infra/terraform apply tasky.tfplan
+terraform -chdir=infra/terraform/platform apply tasky.tfplan
 ```
 
 State, plans, `.terraform`, private keys and `.tfvars` are ignored. Keep the lockfile in
@@ -200,7 +200,7 @@ ssh -i .local/tasky-wiz/mongodb ubuntu@"$MONGO_IP" \
   'sudo cat /etc/mongodb/tls/ca.crt' > .local/tasky-wiz/ca.crt
 kubectl -n tasky create secret generic tasky-mongo-ca \
   --from-file=ca.crt=.local/tasky-wiz/ca.crt --dry-run=client -o yaml | kubectl apply -f -
-terraform -chdir=infra/terraform output -raw helm_aws_values > .local/tasky-wiz/values-aws.yaml
+terraform -chdir=infra/terraform/platform output -raw helm_aws_values > .local/tasky-wiz/values-aws.yaml
 ```
 
 Set the existing `tasky-secrets` `MONGODB_URI` to the `mongodb_tls_uri_template` output,

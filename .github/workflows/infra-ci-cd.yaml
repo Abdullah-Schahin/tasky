@@ -8,7 +8,8 @@ on:
         "infra/terraform/**",
         ".github/workflows/infra-ci-cd.yaml",
         ".github/workflows/security-scans.yaml",
-        ".github/scripts/terraform-ci-inputs.py",
+        ".github/scripts/terraform_ci.py",
+        ".github/scripts/terraform-plan-check.py",
         ".github/scripts/security-summary.py",
       ]
   push:
@@ -18,13 +19,18 @@ on:
         "infra/terraform/**",
         ".github/workflows/infra-ci-cd.yaml",
         ".github/workflows/security-scans.yaml",
-        ".github/scripts/terraform-ci-inputs.py",
+        ".github/scripts/terraform_ci.py",
+        ".github/scripts/terraform-plan-check.py",
         ".github/scripts/security-summary.py",
       ]
   workflow_dispatch:
     inputs:
       apply:
         description: Apply the plan from this run after protected-environment approval (main only).
+        type: boolean
+        default: false
+      include-domain:
+        description: Also plan/register abu-pse.link and provision TLS (registration is billable when apply is checked)
         type: boolean
         default: false
 
@@ -63,15 +69,17 @@ jobs:
         with:
           terraform_version: 1.14.3
           terraform_wrapper: false
-      - name: Check formatting
+      - name: Format and validate Terraform roots
+        env:
+          TF_PLUGIN_CACHE_DIR: ${{ runner.temp }}/terraform-plugins
         run: |
+          mkdir -p "$TF_PLUGIN_CACHE_DIR"
           terraform -chdir=infra/terraform fmt -check -recursive
-      - name: Initialize providers without backend or AWS credentials
-        run: |
-          terraform -chdir=infra/terraform init -backend=false -input=false -lockfile=readonly
-      - name: Validate Terraform
-        run: |
-          terraform -chdir=infra/terraform validate
+          for root in platform domain/registration domain/tls app-dns; do
+            terraform -chdir="infra/terraform/$root" init -backend=false -input=false -lockfile=readonly
+            terraform -chdir="infra/terraform/$root" validate
+            terraform -chdir="infra/terraform/$root" test
+          done
 
   security:
     name: Infra Security
@@ -86,7 +94,7 @@ jobs:
       trivy-infra: true
       working-directory: infra/terraform
       infra-severity: HIGH,CRITICAL
-      infra-ignorefile: infra/terraform/.trivyignore.yaml
+      infra-ignorefile: infra/terraform/platform/.trivyignore.yaml
 
   plan:
     name: Terraform plan
@@ -123,23 +131,18 @@ jobs:
           allowed-account-ids: ${{ vars.AWS_ACCOUNT_ID }}
           role-session-name: tasky-infra-${{ github.run_id }}
       - name: Prepare backend and Terraform inputs
-        run: python3 .github/scripts/terraform-ci-inputs.py
+        run: python3 .github/scripts/terraform_ci.py platform
       - name: Require protected state storage
-        run: |
-          aws s3api get-public-access-block --bucket "$TF_STATE_BUCKET" |
-            jq -e '.PublicAccessBlockConfiguration | .BlockPublicAcls and .IgnorePublicAcls and .BlockPublicPolicy and .RestrictPublicBuckets'
-          aws s3api get-bucket-versioning --bucket "$TF_STATE_BUCKET" | jq -e '.Status == "Enabled"'
-          aws s3api get-bucket-encryption --bucket "$TF_STATE_BUCKET" |
-            jq -e '.ServerSideEncryptionConfiguration.Rules | any(.ApplyServerSideEncryptionByDefault.SSEAlgorithm == "AES256" or .ApplyServerSideEncryptionByDefault.SSEAlgorithm == "aws:kms")'
+        run: python3 .github/scripts/terraform_ci.py check-state
       - name: Initialize shared state with locking
-        run: terraform -chdir=infra/terraform init -input=false -lockfile=readonly -backend-config="$RUNNER_TEMP/backend.hcl"
+        run: terraform -chdir=infra/terraform/platform init -input=false -lockfile=readonly -backend-config="$RUNNER_TEMP/backend.hcl"
       - name: Create and store the reviewable plan
         id: plan
         run: |
-          terraform -chdir=infra/terraform plan -input=false -lock-timeout=5m -out="$RUNNER_TEMP/tasky.tfplan"
-          terraform -chdir=infra/terraform show -json "$RUNNER_TEMP/tasky.tfplan" > "$RUNNER_TEMP/tasky-plan.json"
-          python3 infra/terraform/check-plan.py "$RUNNER_TEMP/tasky-plan.json"
-          terraform -chdir=infra/terraform show -no-color "$RUNNER_TEMP/tasky.tfplan" > "$RUNNER_TEMP/tasky-plan.txt"
+          terraform -chdir=infra/terraform/platform plan -input=false -lock-timeout=5m -out="$RUNNER_TEMP/tasky.tfplan"
+          terraform -chdir=infra/terraform/platform show -json "$RUNNER_TEMP/tasky.tfplan" > "$RUNNER_TEMP/tasky-plan.json"
+          python3 .github/scripts/terraform-plan-check.py "$RUNNER_TEMP/tasky-plan.json"
+          terraform -chdir=infra/terraform/platform show -no-color "$RUNNER_TEMP/tasky.tfplan" > "$RUNNER_TEMP/tasky-plan.txt"
           sha=$(sha256sum "$RUNNER_TEMP/tasky.tfplan" | cut -d ' ' -f 1)
           key="plans/$GITHUB_RUN_ID/$GITHUB_RUN_ATTEMPT/$GITHUB_SHA/tasky.tfplan"
           aws s3 cp "$RUNNER_TEMP/tasky.tfplan" "s3://$TF_STATE_BUCKET/$key" --sse AES256 --only-show-errors
@@ -193,16 +196,11 @@ jobs:
           allowed-account-ids: ${{ vars.AWS_ACCOUNT_ID }}
           role-session-name: tasky-infra-${{ github.run_id }}
       - name: Prepare backend and Terraform inputs
-        run: python3 .github/scripts/terraform-ci-inputs.py
+        run: python3 .github/scripts/terraform_ci.py platform
       - name: Require protected state storage
-        run: |
-          aws s3api get-public-access-block --bucket "$TF_STATE_BUCKET" |
-            jq -e '.PublicAccessBlockConfiguration | .BlockPublicAcls and .IgnorePublicAcls and .BlockPublicPolicy and .RestrictPublicBuckets'
-          aws s3api get-bucket-versioning --bucket "$TF_STATE_BUCKET" | jq -e '.Status == "Enabled"'
-          aws s3api get-bucket-encryption --bucket "$TF_STATE_BUCKET" |
-            jq -e '.ServerSideEncryptionConfiguration.Rules | any(.ApplyServerSideEncryptionByDefault.SSEAlgorithm == "AES256" or .ApplyServerSideEncryptionByDefault.SSEAlgorithm == "aws:kms")'
+        run: python3 .github/scripts/terraform_ci.py check-state
       - name: Initialize shared state with locking
-        run: terraform -chdir=infra/terraform init -input=false -lockfile=readonly -backend-config="$RUNNER_TEMP/backend.hcl"
+        run: terraform -chdir=infra/terraform/platform init -input=false -lockfile=readonly -backend-config="$RUNNER_TEMP/backend.hcl"
       - name: Download and verify the exact saved plan
         env:
           PLAN_SHA256: ${{ needs.plan.outputs.plan-sha256 }}
@@ -212,4 +210,86 @@ jobs:
           aws s3 cp "s3://$TF_STATE_BUCKET/$PLAN_KEY" "$RUNNER_TEMP/tasky.tfplan" --only-show-errors
           printf '%s  %s\n' "$PLAN_SHA256" "$RUNNER_TEMP/tasky.tfplan" | sha256sum --check --strict
       - name: Apply saved plan
-        run: terraform -chdir=infra/terraform apply -input=false -lock-timeout=5m "$RUNNER_TEMP/tasky.tfplan"
+        run: terraform -chdir=infra/terraform/platform apply -input=false -lock-timeout=5m "$RUNNER_TEMP/tasky.tfplan"
+
+  domain:
+    name: Domain registration and TLS
+    needs: [validate, security]
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.include-domain
+    environment: bootstrap
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    env:
+      AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+      TF_IN_AUTOMATION: "true"
+      TF_INPUT: "false"
+    steps:
+      - name: Runtime Security Agent (Cimon)
+        uses: cycodelabs/cimon-action@1374f7193c5a4390740fa451feb05ce812955958
+        with:
+          prevent: true
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd
+        with:
+          terraform_version: 1.14.3
+          terraform_wrapper: false
+      - name: Prepare protected domain inputs
+        env:
+          DOMAIN_CONTACT_JSON: ${{ secrets.DOMAIN_CONTACT_JSON }}
+        run: python3 .github/scripts/terraform_ci.py domain
+      - name: Authenticate for domain administration
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a
+        with:
+          aws-access-key-id: ${{ secrets.AWS_BOOTSTRAP_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_BOOTSTRAP_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_BOOTSTRAP_SESSION_TOKEN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          allowed-account-ids: ${{ vars.AWS_ACCOUNT_ID }}
+      - name: Require private versioned state storage
+        run: python3 .github/scripts/terraform_ci.py check-state
+      - name: Plan domain registration
+        run: |
+          terraform -chdir=infra/terraform/domain/registration init -reconfigure -input=false -lockfile=readonly -backend-config="$RUNNER_TEMP/domain-registration-backend.hcl"
+          terraform -chdir=infra/terraform/domain/registration plan -input=false -lock-timeout=5m -out="$RUNNER_TEMP/domain.tfplan"
+      - name: Register domain from saved plan
+        if: inputs.apply
+        run: terraform -chdir=infra/terraform/domain/registration apply -input=false -lock-timeout=5m "$RUNNER_TEMP/domain.tfplan"
+      - name: Find registration-created hosted zone
+        id: zone
+        run: |
+          terraform -chdir=infra/terraform/domain/registration output -json > "$RUNNER_TEMP/domain-outputs.json"
+          if jq -e 'has("hosted_zone_id")' "$RUNNER_TEMP/domain-outputs.json" >/dev/null; then
+            zone=$(terraform -chdir=infra/terraform/domain/registration output -raw hosted_zone_id)
+            [[ "$zone" =~ ^Z[A-Z0-9]+$ ]] || exit 1
+            echo "id=$zone" >> "$GITHUB_OUTPUT"
+          else
+            echo 'Certificate planning is deferred until domain registration has completed.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Plan certificate and adopt existing hosted zone
+        if: steps.zone.outputs.id != ''
+        env:
+          TF_VAR_hosted_zone_id: ${{ steps.zone.outputs.id }}
+        run: |
+          terraform -chdir=infra/terraform/domain/tls init -reconfigure -input=false -lockfile=readonly -backend-config="$RUNNER_TEMP/domain-tls-backend.hcl"
+          terraform -chdir=infra/terraform/domain/tls plan -input=false -lock-timeout=5m -out="$RUNNER_TEMP/tls.tfplan"
+      - name: Apply certificate and DNS validation
+        if: inputs.apply && steps.zone.outputs.id != ''
+        run: terraform -chdir=infra/terraform/domain/tls apply -input=false -lock-timeout=5m "$RUNNER_TEMP/tls.tfplan"
+      - name: Publish non-secret configuration
+        if: inputs.apply
+        run: |
+          cert=$(terraform -chdir=infra/terraform/domain/tls output -raw certificate_arn)
+          zone=$(terraform -chdir=infra/terraform/domain/tls output -raw hosted_zone_id)
+          {
+            echo '## Domain ready'
+            echo 'Set app-deploy secret APP_DOMAIN to tasky.abu-pse.link.'
+            echo "Set app-deploy variable ACM_CERTIFICATE_ARN to $cert."
+            echo "Set APP_HOSTED_ZONE_ID to $zone in bootstrap and app-deploy, then rerun bootstrap apply to grant app DNS permissions."
+            echo 'Registration auto-renew is disabled; retain the state and monitor domain expiry.'
+          } >> "$GITHUB_STEP_SUMMARY"

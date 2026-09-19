@@ -1,5 +1,4 @@
 name: App CI/CD
-description: CI/CD workflow for building, testing, and containerizing the Tasky app.
 
 on:
   workflow_dispatch: {}
@@ -302,3 +301,75 @@ jobs:
           image="${REGISTRY}/${image_name}@${IMAGE_DIGEST}"
           cosign attest --yes --type spdxjson --predicate "$RUNNER_TEMP/scanned-image/sbom.spdx.json" "$image"
           cosign attest --yes --type slsaprovenance1 --predicate "$RUNNER_TEMP/scanned-image/provenance.json" "$image"
+
+  deploy-aws:
+    name: Deploy App
+    needs: publish-sign
+    if: github.ref == 'refs/heads/main' && vars.ENABLE_APP_DEPLOY == 'true'
+    environment: app-deploy
+    # This runner must reach the private EKS API and have Helm, kubectl and AWS CLI.
+    runs-on: [self-hosted, linux, tasky-eks]
+    timeout-minutes: 30
+    concurrency:
+      group: tasky-app-deploy
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+      packages: read
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+      EKS_CLUSTER_NAME: ${{ vars.EKS_CLUSTER_NAME || 'tasky-wiz' }}
+      APP_DOMAIN: ${{ secrets.APP_DOMAIN }}
+      ACM_CERTIFICATE_ARN: ${{ vars.ACM_CERTIFICATE_ARN }}
+      APP_HOSTED_ZONE_ID: ${{ vars.APP_HOSTED_ZONE_ID }}
+      PUBLIC_SUBNET_IDS: ${{ vars.PUBLIC_SUBNET_IDS }}
+      TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+      IMAGE_REF: ${{ needs.publish-sign.outputs.image }}
+      IMAGE_DIGEST: ${{ needs.publish-sign.outputs.digest }}
+      KUBECONFIG: ${{ runner.temp }}/tasky-ci-kubeconfig
+    steps:
+      - name: Runtime Security Agent (Cimon)
+        uses: cycodelabs/cimon-action@1374f7193c5a4390740fa451feb05ce812955958
+        with:
+          prevent: false
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd
+        with:
+          terraform_version: 1.14.3
+          terraform_wrapper: false
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6
+      - name: Authenticate to image registry
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Verify signed release
+        run: |
+          cosign verify "${IMAGE_REF%:*}@${IMAGE_DIGEST}" \
+            --certificate-identity "https://github.com/$GITHUB_REPOSITORY/.github/workflows/app-ci-cd.yaml@refs/heads/main" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com
+      - name: Assume app deployment role
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a
+        with:
+          role-to-assume: ${{ vars.AWS_APP_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          allowed-account-ids: ${{ vars.AWS_ACCOUNT_ID }}
+      - name: Deploy Helm release and configure ALB alias
+        run: python3 .github/scripts/deploy-aws-app.py
+      - name: Remove runner-local deployment configuration
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          for path in [Path(os.environ['KUBECONFIG']), Path('infra/terraform/app-dns/ci.auto.tfvars.json'), Path(os.environ['RUNNER_TEMP']) / 'app-values.json']:
+              path.unlink(missing_ok=True)
+          PY

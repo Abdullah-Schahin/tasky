@@ -64,3 +64,16 @@ run "reuse_existing_oidc" {
     error_message = "Reusing an existing GitHub provider must not create a duplicate."
   }
 }
+
+run "scoped_app_dns" {
+  command = apply
+  variables { app_dns_zone_id = "ZTEST123" }
+  assert {
+    condition     = jsondecode(aws_iam_role_policy.app_dns[0].policy).Statement[1].Resource == "arn:aws:route53:::hostedzone/ZTEST123" && jsondecode(aws_iam_role_policy.app_dns[0].policy).Statement[1].Condition["ForAllValues:StringEquals"]["route53:ChangeResourceRecordSetsNormalizedRecordNames"][0] == "tasky.abu-pse.link"
+    error_message = "App role DNS writes must target only its own name in the selected zone."
+  }
+  assert {
+    condition     = jsondecode(aws_s3_bucket_policy.state.policy).Statement[2].Effect == "Deny" && contains(jsondecode(aws_s3_bucket_policy.state.policy).Statement[2].Resource, "${local.bucket_arn}/domain-registration/*")
+    error_message = "App deployment must not read registration contact state."
+  }
+}

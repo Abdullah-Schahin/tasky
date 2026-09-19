@@ -40,7 +40,7 @@ def seed(config):
         if any(actual.get(k) != v for k, v in tags.items()):
             raise ValueError('Existing bucket lacks bootstrap ownership tags; review/import it manually')
     denied_roles = [f'arn:aws:iam::{account}:role/{prefix}-{role}' for role in
-                    ['eks', 'nodes', 'mongodb', 'config', 'load-balancer-controller', 'ci-app']]
+                    ['eks', 'nodes', 'mongodb', 'config', 'load-balancer-controller']]
     state = aws('s3api', 'head-object', *owner, '--key', 'bootstrap/terraform.tfstate', missing=('404', 'NoSuchKey'))
     if state is None:
         # Never replace missing state with an empty state for already-created identities.
@@ -84,16 +84,16 @@ def seed(config):
         raise ValueError('Bootstrap state bucket must deny exercise workload access')
     with open(os.environ['GITHUB_ENV'], 'a') as output:
         output.write(f'BOOTSTRAP_HAS_STATE={str(state is not None).lower()}\n')
-    Path('infra/bootstrap/backend.ci.tf').write_text('terraform {\n  backend "s3" {}\n}\n')
+    Path('infra/terraform/bootstrap/backend.ci.tf').write_text('terraform {\n  backend "s3" {}\n}\n')
     print('Private bootstrap backend is ready; state key: bootstrap/terraform.tfstate')
 
 
 if __name__ == '__main__':
     try:
-        seed(json.loads(Path('infra/bootstrap/ci.auto.tfvars.json').read_text()))
+        seed(json.loads(Path('infra/terraform/bootstrap/ci.auto.tfvars.json').read_text()))
     except FileNotFoundError as error:
         print(f'Bootstrap input file is missing: {error.filename}. '
-              'Run bootstrap-ci-inputs.py before bootstrap-state.py in the same job.', file=sys.stderr)
+              'Run terraform_ci.py bootstrap before bootstrap-state.py in the same job.', file=sys.stderr)
         sys.exit(1)
     except (ValueError, RuntimeError, KeyError) as error:
         print(f'Bootstrap state setup failed: {error}', file=sys.stderr)

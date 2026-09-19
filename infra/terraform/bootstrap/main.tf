@@ -1,3 +1,92 @@
+terraform {
+  required_version = ">= 1.11.0, < 2.0.0"
+  required_providers {
+    aws = { source = "hashicorp/aws", version = "~> 6.0" }
+  }
+}
+provider "aws" {
+  region              = var.region
+  allowed_account_ids = [var.account_id]
+  default_tags { tags = { "created by" = "Abu", "for" = "Wiz PSE", Project = var.prefix } }
+}
+data "aws_partition" "current" {}
+locals {
+  arn               = "arn:${data.aws_partition.current.partition}"
+  account_arn       = "${local.arn}:iam::${var.account_id}"
+  bucket_name       = "${var.prefix}-tfstate-${var.account_id}-${var.region}"
+  bucket_arn        = "${local.arn}:s3:::${local.bucket_name}"
+  environments      = { plan = "terraform-plan", apply = "terraform-apply", app = "app-deploy" }
+  oidc_arn          = var.github_oidc_provider_arn != null ? var.github_oidc_provider_arn : aws_iam_openid_connect_provider.github[0].arn
+  workload_roles    = [for name in ["eks", "nodes", "mongodb", "config", "load-balancer-controller"] : "${local.account_arn}:role/${var.prefix}-${name}"]
+  workload_policies = [for name in ["mongodb-privilege-creep", "load-balancer-controller"] : "${local.account_arn}:policy/${var.prefix}-${name}"]
+  managed_policies  = [for name in ["AmazonEKSClusterPolicy", "AmazonEKSWorkerNodePolicy", "AmazonEC2ContainerRegistryPullOnly", "AmazonEKS_CNI_Policy", "service-role/AWS_ConfigRole"] : "${local.arn}:iam::aws:policy/${name}"]
+}
+resource "aws_iam_openid_connect_provider" "github" {
+  count          = var.github_oidc_provider_arn == null ? 1 : 0
+  url            = "https://token.actions.githubusercontent.com"
+  client_id_list = ["sts.amazonaws.com"]
+}
+resource "aws_iam_role" "ci" {
+  for_each             = local.environments
+  name                 = "${var.prefix}-ci-${each.key}"
+  max_session_duration = 3600
+  assume_role_policy = jsonencode({ Version = "2012-10-17", Statement = [{
+    Effect    = "Allow", Action = "sts:AssumeRoleWithWebIdentity",
+    Principal = { Federated = local.oidc_arn },
+    Condition = { StringEquals = {
+      "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com",
+      "token.actions.githubusercontent.com:sub" = "repo:${var.github_repository}:environment:${each.value}"
+    } }
+  }] })
+}
+
+resource "aws_s3_bucket" "state" {
+  tags          = { BootstrapState = "true" }
+  bucket        = local.bucket_name
+  force_destroy = false
+  lifecycle { prevent_destroy = true }
+}
+resource "aws_s3_bucket_public_access_block" "state" {
+  bucket                  = aws_s3_bucket.state.id
+  block_public_acls       = true
+  ignore_public_acls      = true
+  block_public_policy     = true
+  restrict_public_buckets = true
+}
+resource "aws_s3_bucket_ownership_controls" "state" {
+  bucket = aws_s3_bucket.state.id
+  rule { object_ownership = "BucketOwnerEnforced" }
+}
+resource "aws_s3_bucket_versioning" "state" {
+  bucket = aws_s3_bucket.state.id
+  versioning_configuration { status = "Enabled" }
+}
+resource "aws_s3_bucket_server_side_encryption_configuration" "state" {
+  bucket = aws_s3_bucket.state.id
+  rule {
+    apply_server_side_encryption_by_default { sse_algorithm = "AES256" }
+  }
+}
+resource "aws_s3_bucket_policy" "state" {
+  bucket = aws_s3_bucket.state.id
+  policy = jsonencode({ Version = "2012-10-17", Statement = [
+    { Sid = "RequireTLS", Effect = "Deny", Principal = "*", Action = "s3:*", Resource = [local.bucket_arn, "${local.bucket_arn}/*"], Condition = { Bool = { "aws:SecureTransport" = "false" } } },
+    { Sid = "ExcludeExerciseWorkloads", Effect = "Deny", Principal = "*", Action = "s3:*", Resource = [local.bucket_arn, "${local.bucket_arn}/*"], Condition = { ArnEquals = { "aws:PrincipalArn" = local.workload_roles } } },
+    { Sid = "DenyAppPrivilegedState", Effect = "Deny", Principal = "*", Action = "s3:*", Resource = [for path in ["bootstrap/*", "domain-registration/*", "domain-tls/*", "infra/*", "plans/*"] : "${local.bucket_arn}/${path}"], Condition = { ArnEquals = { "aws:PrincipalArn" = aws_iam_role.ci["app"].arn } } }
+  ] })
+}
+resource "aws_iam_role_policy" "state" {
+  for_each = toset(["plan", "apply"])
+  name     = "terraform-state"
+  role     = aws_iam_role.ci[each.key].id
+  policy = jsonencode({ Version = "2012-10-17", Statement = concat([
+    { Effect = "Allow", Action = ["s3:ListBucket", "s3:GetBucketLocation", "s3:GetBucketPublicAccessBlock", "s3:GetBucketVersioning", "s3:GetEncryptionConfiguration"], Resource = local.bucket_arn },
+    { Effect = "Allow", Action = ["s3:GetObject"], Resource = "${local.bucket_arn}/${var.state_key}" },
+    { Effect = "Allow", Action = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"], Resource = "${local.bucket_arn}/${var.state_key}.tflock" },
+    { Effect = "Allow", Action = each.key == "plan" ? ["s3:GetObject", "s3:PutObject"] : ["s3:GetObject"], Resource = "${local.bucket_arn}/plans/*" }
+  ], each.key == "apply" ? [{ Effect = "Allow", Action = ["s3:PutObject"], Resource = "${local.bucket_arn}/${var.state_key}" }] : []) })
+}
+
 # Discovery metadata only: no general S3 object reads or database secret values.
 resource "aws_iam_policy" "discovery" {
   name = "${var.prefix}-ci-discovery"
@@ -80,4 +169,23 @@ resource "aws_iam_role_policy" "app" {
   policy = jsonencode({ Version = "2012-10-17", Statement = [{
     Effect = "Allow", Action = "eks:DescribeCluster", Resource = "${local.arn}:eks:${var.region}:${var.account_id}:cluster/${var.prefix}"
   }] })
+}
+
+resource "aws_iam_role_policy" "app_dns" {
+  count = var.app_dns_zone_id == null ? 0 : 1
+  name  = "app-dns-only"
+  role  = aws_iam_role.ci["app"].id
+  policy = jsonencode({ Version = "2012-10-17", Statement = [
+    { Effect = "Allow", Action = ["route53:GetHostedZone", "route53:ListResourceRecordSets", "route53:ListTagsForResource"], Resource = "${local.arn}:route53:::hostedzone/${var.app_dns_zone_id}" },
+    { Effect = "Allow", Action = "route53:ChangeResourceRecordSets", Resource = "${local.arn}:route53:::hostedzone/${var.app_dns_zone_id}", Condition = { "ForAllValues:StringEquals" = {
+      "route53:ChangeResourceRecordSetsNormalizedRecordNames" = ["tasky.abu-pse.link"],
+      "route53:ChangeResourceRecordSetsRecordTypes"           = ["A"],
+      "route53:ChangeResourceRecordSetsActions"               = ["CREATE", "UPSERT", "DELETE"]
+    } } },
+    { Effect = "Allow", Action = "route53:GetChange", Resource = "${local.arn}:route53:::change/*" },
+    { Effect = "Allow", Action = ["elasticloadbalancing:DescribeLoadBalancers", "elasticloadbalancing:DescribeLoadBalancerAttributes", "elasticloadbalancing:DescribeTags", "elasticloadbalancing:DescribeListeners", "acm:DescribeCertificate"], Resource = "*", Condition = { StringEquals = { "aws:RequestedRegion" = var.region } } },
+    { Effect = "Allow", Action = ["s3:ListBucket", "s3:GetBucketLocation", "s3:GetBucketPublicAccessBlock", "s3:GetBucketVersioning", "s3:GetEncryptionConfiguration", "s3:GetBucketPolicy"], Resource = local.bucket_arn },
+    { Effect = "Allow", Action = ["s3:GetObject", "s3:PutObject"], Resource = "${local.bucket_arn}/app-dns/terraform.tfstate" },
+    { Effect = "Allow", Action = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"], Resource = "${local.bucket_arn}/app-dns/terraform.tfstate.tflock" }
+  ] })
 }
