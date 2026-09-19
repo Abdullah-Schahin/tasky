@@ -12,6 +12,9 @@ assert re.fullmatch(r'[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]', e['TF_STATE_BUCKET'])
 assert e['TF_STATE_KEY'] and not e['TF_STATE_KEY'].startswith('/')
 # Do not use the deliberately public backup bucket for state or plans.
 assert '-backup-' not in e['TF_STATE_BUCKET'], 'State must not use the exercise backup bucket'
+expected_boundary = f"arn:aws:iam::{e['AWS_ACCOUNT_ID']}:policy/{values.get('prefix', 'tasky-wiz')}-workload-boundary"
+assert values.get('workload_permissions_boundary_arn') == expected_boundary, 'Use the bootstrap workload boundary'
+assert values.get('app_deploy_role_arn') == f"arn:aws:iam::{e['AWS_ACCOUNT_ID']}:role/{values.get('prefix', 'tasky-wiz')}-ci-app", 'Use the bootstrap app role'
 root = Path('infra/terraform')
 (root / 'ci.auto.tfvars.json').write_text(json.dumps(values))
 backend = {'bucket': e['TF_STATE_BUCKET'], 'key': e['TF_STATE_KEY'],

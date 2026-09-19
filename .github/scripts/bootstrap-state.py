@@ -91,6 +91,10 @@ def seed(config):
 if __name__ == '__main__':
     try:
         seed(json.loads(Path('infra/bootstrap/ci.auto.tfvars.json').read_text()))
+    except FileNotFoundError as error:
+        print(f'Bootstrap input file is missing: {error.filename}. '
+              'Run bootstrap-ci-inputs.py before bootstrap-state.py in the same job.', file=sys.stderr)
+        sys.exit(1)
     except (ValueError, RuntimeError, KeyError) as error:
         print(f'Bootstrap state setup failed: {error}', file=sys.stderr)
         sys.exit(1)
