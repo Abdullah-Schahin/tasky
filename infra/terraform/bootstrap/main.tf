@@ -221,13 +221,13 @@ resource "aws_iam_role_policy" "apply_ssm_document" {
   name = "mongodb-ca-document"
   role = aws_iam_role.ci["apply"].id
   policy = jsonencode({ Version = "2012-10-17", Statement = [{
-    Effect = "Allow", Action = ["ssm:CreateDocument", "ssm:UpdateDocument", "ssm:UpdateDocumentDefaultVersion", "ssm:DeleteDocument", "ssm:DescribeDocument", "ssm:GetDocument", "ssm:ListDocumentVersions", "ssm:ListTagsForResource", "ssm:AddTagsToResource", "ssm:RemoveTagsFromResource"], Resource = "${local.arn}:ssm:${var.region}:${var.account_id}:document/${var.prefix}-mongodb-ca"
+    Effect = "Allow", Action = ["ssm:CreateDocument", "ssm:UpdateDocument", "ssm:UpdateDocumentDefaultVersion", "ssm:DeleteDocument", "ssm:DescribeDocument", "ssm:DescribeDocumentPermission", "ssm:GetDocument", "ssm:ListDocumentVersions", "ssm:ListTagsForResource", "ssm:AddTagsToResource", "ssm:RemoveTagsFromResource"], Resource = "${local.arn}:ssm:${var.region}:${var.account_id}:document/${var.prefix}-mongodb-ca"
   }] })
 }
 resource "aws_iam_role_policy" "plan_ssm_document" {
   name = "mongodb-ca-document-read"
   role = aws_iam_role.ci["plan"].id
   policy = jsonencode({ Version = "2012-10-17", Statement = [{
-    Effect = "Allow", Action = ["ssm:DescribeDocument", "ssm:GetDocument", "ssm:ListDocumentVersions", "ssm:ListTagsForResource"], Resource = "${local.arn}:ssm:${var.region}:${var.account_id}:document/${var.prefix}-mongodb-ca"
+    Effect = "Allow", Action = ["ssm:DescribeDocument", "ssm:DescribeDocumentPermission", "ssm:GetDocument", "ssm:ListDocumentVersions", "ssm:ListTagsForResource"], Resource = "${local.arn}:ssm:${var.region}:${var.account_id}:document/${var.prefix}-mongodb-ca"
   }] })
 }

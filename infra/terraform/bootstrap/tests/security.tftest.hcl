@@ -100,3 +100,14 @@ run "runner_identity_scope" {
     error_message = "Runner instance credentials must be excluded from Terraform state."
   }
 }
+
+run "ssm_document_refresh_permissions" {
+  command = plan
+  assert {
+    condition = alltrue([for policy in [aws_iam_role_policy.plan_ssm_document.policy, aws_iam_role_policy.apply_ssm_document.policy] :
+      contains(jsondecode(policy).Statement[0].Action, "ssm:DescribeDocumentPermission") &&
+      jsondecode(policy).Statement[0].Resource == "arn:aws:ssm:us-east-1:516027198761:document/tasky-wiz-mongodb-ca"
+    ])
+    error_message = "Both Terraform roles must read document permissions, scoped to the MongoDB CA document."
+  }
+}
