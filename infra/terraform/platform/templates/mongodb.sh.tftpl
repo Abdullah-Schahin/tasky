@@ -7,8 +7,11 @@ export DEBIAN_FRONTEND=noninteractive
 systemctl disable --now apt-daily.timer apt-daily-upgrade.timer unattended-upgrades.service || true
 apt-get update
 apt-get install -y ca-certificates curl gnupg openssl python3 awscli
-curl -fsSL https://pgp.mongodb.com/server-6.0.asc | gpg --dearmor -o /usr/share/keyrings/mongodb-server-6.0.gpg
+curl -fsSL https://pgp.mongodb.com/server-6.0.asc | gpg --batch --yes --dearmor -o /usr/share/keyrings/mongodb-server-6.0.gpg
+# This is a public signing key: _apt must read it despite the restrictive umask.
+chmod 0644 /usr/share/keyrings/mongodb-server-6.0.gpg
 printf '%s\n' 'deb [arch=amd64 signed-by=/usr/share/keyrings/mongodb-server-6.0.gpg] https://repo.mongodb.org/apt/ubuntu ${codename}/mongodb-org/6.0 multiverse' > /etc/apt/sources.list.d/mongodb-org-6.0.list
+chmod 0644 /etc/apt/sources.list.d/mongodb-org-6.0.list
 apt-get update
 apt-get install -y mongodb-org-server=${mongo_version} mongodb-mongosh mongodb-database-tools
 apt-mark hold mongodb-org-server
