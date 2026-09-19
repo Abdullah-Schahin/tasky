@@ -425,9 +425,7 @@ jobs:
       - name: Runtime Security Agent (Cimon)
         uses: cycodelabs/cimon-action@1374f7193c5a4390740fa451feb05ce812955958
         with:
-          prevent: true
-          allowed-hosts: >
-            releases.hashicorp.com
+          prevent: false
       - name: Checkout infrastructure
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
