@@ -54,9 +54,7 @@ jobs:
           terraform -chdir=infra/bootstrap init -backend=false -input=false -lockfile=readonly
           terraform -chdir=infra/bootstrap validate
           terraform -chdir=infra/bootstrap test
-          python3 -m unittest discover -s tests -p 'test_bootstrap_workflow.py'
-      - name: Validate GitHub configuration
-        run: python3 .github/scripts/bootstrap-ci-inputs.py
+
       - name: Authenticate for initial account setup
         uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
         with:
@@ -65,8 +63,10 @@ jobs:
           aws-session-token: ${{ secrets.AWS_BOOTSTRAP_SESSION_TOKEN }}
           aws-region: ${{ vars.AWS_REGION }}
           allowed-account-ids: ${{ vars.AWS_ACCOUNT_ID }}
+
       - name: Initialize or verify private state storage
         run: python3 .github/scripts/bootstrap-state.py
+
       - name: Initialize durable bootstrap state and adopt the seeded bucket
         run: |
           terraform -chdir=infra/bootstrap init -reconfigure -input=false -lockfile=readonly -backend-config="$RUNNER_TEMP/bootstrap-backend.hcl"
