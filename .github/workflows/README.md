@@ -2,20 +2,15 @@
 
 `app-ci-cd.yaml` owns app build, Minikube tests, container build/evidence, and publishing.
 `security-scans.yaml` is a reusable `workflow_call` workflow owning scanner execution,
-report artifacts, per-scanner PR comments, and the selected-scanner failure gate.
-PR comments run in isolated jobs in the same workflow without checking out or executing
-repository code. The four comment jobs share their steps through a YAML anchor.
+report artifacts and per-scanner PR comments. Each enabled scanner runs in its own
+parallel job with input validation, scanning, summary generation and immediate reporting.
+There are no separate validation, reporting or final-gate runners. Shared validation
+and comment steps use YAML anchors; commenting reads the local sanitized summary.
 
-The app calls security scans twice:
-
-1. `source-security` after Minikube tests: TruffleHog, Bearer, and govulncheck.
-2. `image-security` after container build: Trivy against the uploaded image archive.
-
-Container building waits for source scans; publishing/signing waits for the image scan.
-The image is built once for release. Its archive checksum is checked by both Trivy's job
-and publishing. SBOM/provenance are generated alongside the candidate archive before
-scanning; nothing is pushed or signed unless the security gates pass. The Minikube test
-builds a separate development image from the same checkout.
+The app calls the workflow after tests and container creation, enabling TruffleHog,
+Bearer, govulncheck and Trivy. Publishing/signing depends on the reusable workflow
+succeeding. The image archive checksum is verified before scanning and publishing.
+Infrastructure CI enables TruffleHog and Trivy configuration scanning.
 
 ## Plug scanning into another pipeline
 
@@ -29,41 +24,45 @@ jobs:
       contents: read
       actions: read
       pull-requests: write
+      issues: write
     with:
       report-prefix: terraform
       trufflehog: true
       working-directory: infra/terraform/platform
 ```
 
-This example enables secret scanning only; it does not claim to scan Terraform
-misconfigurations. Add future Terraform/Kubernetes scanners to `security-scans.yaml`,
-the selected-scanner gate, and the shared report formatter/reporter. Their calling
-pipelines can then opt in without copying scanner implementations. Those CI/CD workflows
-do not exist yet in the current repository.
+This example enables secret scanning only. Enable `trivy-infra` to scan configuration.
+Future scanners need one job and support in the shared report formatter; callers opt
+in through workflow inputs.
 
 | Input | Default | Purpose |
 | --- | --- | --- |
 | `report-prefix` | Required | Unique lowercase name per call in a run, e.g. `app-source`, `app-image`, `terraform`, `kubernetes` |
-| `trufflehog`, `bearer`, `govulncheck`, `trivy` | `false` | Select scanners; at least one must be enabled |
+| `trufflehog`, `bearer`, `govulncheck`, `trivy`, `trivy-infra` | `false` | Select scanners; at least one must be enabled |
 | `working-directory` | `.` | Bearer and govulncheck scan path; TruffleHog scans the Git commit range |
 | `image-artifact-id` | Empty | Required by Trivy; artifact in this run containing `tasky-image.tar` |
 | `image-sha256` | Empty | Required by Trivy; expected SHA256 of the archive |
 | `trivy-severity` | `CRITICAL` | Blocking container vulnerability severities |
 | `comment-on-pr` | `true` | Post per-scanner comments on same-repository PRs |
 
-Each selected scanner must succeed. Disabled scanners may skip; a selected scanner
-that fails, is cancelled, or skips fails the final gate. Bearer retains the exercise's
-advisory `exit-code: 0` policy. No secrets inheritance is needed. The caller grants the
-permission ceiling shown above; scanner jobs explicitly restrict their own permissions
-to read-only. Only isolated comment jobs request PR write permission.
+Scanner failures fail the reusable workflow and block dependent deployment/publishing
+jobs. Disabled scanners skip; selecting none fails input validation. Bearer and Trivy
+infrastructure findings retain their existing exercise advisory `exit-code: 0` policy.
+TruffleHog, govulncheck and image Trivy retain their blocking behavior.
+
+No secrets inheritance is needed. Scanner jobs request `pull-requests: write` and `issues: write` to post
+their own results; image Trivy also needs `actions: read` to download the archive.
+This combines scanning and reporting privileges on the same runner. Checkout does not
+persist credentials, and the token is explicitly passed to the comment step only.
 
 ## Reports and fork PRs
 
-Each scanner's comment job starts when that scanner completes, including failure; it
+Each scanner's comment step runs after summary generation, including scan failure; it
 does not wait for the other scanners or pipeline stages. Reports include outcome,
 rule/detector IDs, locations or modules, and a workflow link. Artifact names and comment
 markers include `report-prefix` to avoid collisions between calls in the same run.
-There is one comment per prefix/scanner/run, updated on reruns.
+There is one comment per prefix/scanner/run, updated on reruns. Comment API failures
+are advisory and do not mask a failed scan or block an otherwise successful scan.
 
 TruffleHog raw output is temporarily captured and deleted after summary generation.
 Only detector, verification status and file/line metadata are published, never Raw,
@@ -87,8 +86,8 @@ terraform -chdir=infra/terraform fmt -check -recursive
 ```
 
 Reusable jobs change the displayed check names. Update branch protection/rulesets to
-require the appropriate `Source security` and `Image security` nested gate checks after
-the first GitHub run. Local validation does not post comments or trigger workflows.
+require the enabled scanner checks shown by the first GitHub run. Remove obsolete
+`Selected scanners passed` or reporter checks from required checks. Local validation does not post comments or trigger workflows.
 
 ## Manual AWS bootstrap
 
@@ -108,3 +107,15 @@ come from `DOMAIN_CONTACT_JSON`; the app hostname comes from app-deployment secr
 `APP_DOMAIN`. The opt-in app deployment job verifies the signed release, deploys Helm
 on a runner with private EKS connectivity, then applies the ALB DNS alias stack.
 See [complete setup](../../infra/terraform/domain/registration/README.md).
+
+## Main-branch security issues
+
+On main-branch pushes or manual runs, each scanner checks for an open same-repository
+PR associated with the scanned commit. If present, it comments there; otherwise it
+creates an issue containing its sanitized results, including clean scans, assigned to
+`github.actor` (the original run actor, also on reruns). Each prefix/scanner/run has
+one issue, updated on reruns, without concurrent jobs overwriting each other's reports.
+`comment-on-pr` controls PR-event comments; main-branch reporting always runs.
+Enable repository Issues. If GitHub rejects assignment or publication, the reporting
+step shows an error; scan summaries and artifacts remain available and scanner verdicts
+remain unchanged. Fork PRs do not publish comments or issues.
