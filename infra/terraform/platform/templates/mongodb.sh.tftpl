@@ -18,15 +18,24 @@ apt-mark hold mongodb-org-server
 systemctl stop mongod || true
 install -d -m 0700 /etc/tasky /var/lib/tasky-backup
 install -d -m 0750 -o mongodb -g mongodb /etc/mongodb/tls
+# Explicit config avoids duplicate basicConstraints from Ubuntu OpenSSL defaults.
+cat > /etc/tasky/ca.cnf <<'CA_CONFIG'
+[req]
+distinguished_name = dn
+[dn]
+CA_CONFIG
 # Dedicated lab CA; export only ca.crt to the Kubernetes client trust Secret.
-openssl req -x509 -newkey rsa:3072 -nodes -days 90 -subj '/CN=Tasky MongoDB Lab CA' \
+openssl req -x509 -newkey rsa:3072 -nodes -days 90 -config /etc/tasky/ca.cnf -subj '/CN=Tasky MongoDB Lab CA' \
   -addext 'basicConstraints=critical,CA:TRUE' \
+  -addext 'keyUsage=critical,keyCertSign,cRLSign' \
+  -addext 'subjectKeyIdentifier=hash' \
   -keyout /etc/tasky/ca.key -out /etc/mongodb/tls/ca.crt
 openssl req -newkey rsa:3072 -nodes -subj '/CN=${private_ip}' \
   -keyout /etc/mongodb/tls/server.key -out /etc/tasky/server.csr
 printf '%s\n' 'subjectAltName=IP:${private_ip},IP:127.0.0.1,DNS:localhost' 'extendedKeyUsage=serverAuth' > /etc/tasky/server.ext
 openssl x509 -req -in /etc/tasky/server.csr -CA /etc/mongodb/tls/ca.crt -CAkey /etc/tasky/ca.key \
   -CAcreateserial -days 90 -extfile /etc/tasky/server.ext -out /etc/mongodb/tls/server.crt
+openssl verify -CAfile /etc/mongodb/tls/ca.crt /etc/mongodb/tls/server.crt
 cat /etc/mongodb/tls/server.key /etc/mongodb/tls/server.crt > /etc/mongodb/tls/server.pem
 chown -R mongodb:mongodb /etc/mongodb/tls
 chmod 0400 /etc/mongodb/tls/server.key /etc/mongodb/tls/server.pem
@@ -96,7 +105,7 @@ set -euo pipefail
 umask 077
 archive=$(mktemp /var/lib/tasky-backup/mongodb-XXXXXXXX.archive.gz)
 trap 'rm -f "$archive"' EXIT
-mongodump --host '${private_ip}' --tls --tlsCAFile /etc/mongodb/tls/ca.crt \
+mongodump --host '${private_ip}' --ssl --sslCAFile /etc/mongodb/tls/ca.crt \
   --username tasky_backup --authenticationDatabase admin --config /etc/tasky/backup.yaml \
   --archive="$archive" --gzip
 aws s3 cp "$archive" "s3://${bucket}/daily/$(date -u +%Y-%m-%dT%H-%M-%SZ).archive.gz" \
