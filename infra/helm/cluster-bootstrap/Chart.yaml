@@ -1,0 +1,5 @@
+apiVersion: v2
+name: tasky-cluster-bootstrap
+description: Operator-owned namespace and deliberate exercise RBAC
+version: 0.1.0
+type: application

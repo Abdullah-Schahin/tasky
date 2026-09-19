@@ -44,7 +44,8 @@ Builds, tests, scans and publishing remain on GitHub-hosted runners.
    controller, namespace/RBAC and MongoDB secrets are ready.
 
 The bootstrap installs Git, Python, AWS CLI, Docker CLI, kubectl 1.35.0, Helm 3.19.0,
-and GitHub runner 2.337.0. Downloaded kubectl/Helm archives use upstream checksum
+and GitHub runner 2.337.0. AWS CLI v2 uses the officially supported, auto-updating
+`aws-cli` snap because this Ubuntu image has no `awscli` APT candidate. Downloaded kubectl/Helm archives use upstream checksum
 verification; the initial runner archive has a pinned SHA256. Runner automatic
 updates stay enabled. Ubuntu security updates remain enabled, unlike the deliberately
 outdated MongoDB machine. Docker's daemon is disabled; deployment only uses its login
@@ -63,7 +64,7 @@ The registration survives reboot. A replacement instance must be registered agai
 remove the stale offline runner in GitHub before reusing its name. Remove registration
 when destroying the lab. The host is persistent: restrict it to approved deployments
 and rebuild it if compromise is suspected. It is not a Kubernetes administrator host;
-operator setup needs an independently authorized identity and a private network path.
+operator setup uses your local AWS identity through the [SSM kubectl tunnel](../../KUBECTL-DEMO.md).
 
 The AMI selects the latest official Canonical Ubuntu 24.04 image at plan time. An AMI
 or user-data change can propose runner replacement, reviewed through normal Apply

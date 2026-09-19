@@ -2,7 +2,15 @@
 set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
-apt-get install -y --no-install-recommends ca-certificates curl git jq unzip python3 awscli docker.io libicu74
+apt-get install -y --no-install-recommends ca-certificates curl git jq unzip python3 docker.io libicu74
+# Ubuntu 24.04 has no awscli APT candidate in this image. Use AWS's supported snap.
+snap wait system seed.loaded
+if ! snap list aws-cli >/dev/null 2>&1; then
+  snap install aws-cli --classic
+fi
+# systemd runner jobs may not inherit /snap/bin in PATH.
+ln -sfn /snap/bin/aws /usr/local/bin/aws
+/usr/local/bin/aws --version
 # Deployment only needs the client. Do not grant runner access to a Docker daemon.
 systemctl disable --now docker.service docker.socket
 systemctl enable --now snap.amazon-ssm-agent.amazon-ssm-agent.service

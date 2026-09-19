@@ -2,7 +2,6 @@ package database
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"os"
 	"time"
@@ -28,7 +27,7 @@ func CreateMongoClient() *mongo.Client {
 		log.Fatal(err)
 	}
 	defer cancel()
-	fmt.Println("Connected to MONGO -> ", MongoDbURI)
+	log.Println("MongoDB client initialized")
 	return client
 }
 

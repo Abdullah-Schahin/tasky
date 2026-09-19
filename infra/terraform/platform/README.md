@@ -209,8 +209,8 @@ terraform -chdir=infra/terraform/platform output -raw helm_aws_values > .local/t
 Set the existing `tasky-secrets` `MONGODB_URI` to the `mongodb_tls_uri_template` output,
 replacing its password placeholder with the **URL-encoded app password** retrieved
 securely from Secrets Manager. Keep `SECRET_KEY` separately generated. Do not put
-credentials on the command line, in Helm values, screenshots or logs. The app currently
-logs its MongoDB URI at startup; avoid exposing those logs until separately corrected.
+credentials on the command line, in Helm values, screenshots or logs. The app no longer prints its MongoDB URI at startup; deploy the updated image before
+showing logs from the demo.
 The chart's optional `mongodbTLS.existingSecret: tasky-mongo-ca` mounts the trust file
 at `/etc/tasky-mongo-tls/ca.crt`. Local Minikube leaves this feature disabled.
 

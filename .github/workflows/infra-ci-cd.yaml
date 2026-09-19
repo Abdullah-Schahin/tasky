@@ -6,6 +6,7 @@ on:
     paths:
       [
         "infra/terraform/**",
+        "infra/helm/cluster-bootstrap/**",
         ".github/workflows/infra-ci-cd.yaml",
         ".github/workflows/security-scans.yaml",
         ".github/scripts/**",
@@ -15,6 +16,7 @@ on:
     paths:
       [
         "infra/terraform/**",
+        "infra/helm/cluster-bootstrap/**",
         ".github/workflows/infra-ci-cd.yaml",
         ".github/workflows/security-scans.yaml",
         ".github/scripts/**",
@@ -154,6 +156,9 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   apply:
+    outputs:
+      cluster-setup: ${{ steps.cluster-config.outputs.config }}
+      cluster-role: ${{ steps.cluster-config.outputs.role }}
     name: Terraform Apply
     needs: plan
     if: github.event_name == 'workflow_dispatch' && inputs.apply && github.ref == 'refs/heads/main' && vars.ENABLE_INFRA_DEPLOY == 'true'
@@ -207,3 +212,45 @@ jobs:
           printf '%s  %s\n' "$PLAN_SHA256" "$RUNNER_TEMP/tasky.tfplan" | sha256sum --check --strict
       - name: Apply saved plan
         run: terraform -chdir=infra/terraform/platform apply -input=false -lock-timeout=5m "$RUNNER_TEMP/tasky.tfplan"
+
+      - name: Export non-secret cluster configuration
+        id: cluster-config
+        run: |
+          config=$(terraform -chdir=infra/terraform/platform output -json cluster_setup | jq -c .)
+          echo "config=$config" >> "$GITHUB_OUTPUT"
+          echo "role=$(echo "$config" | jq -r .role)" >> "$GITHUB_OUTPUT"
+
+  cluster-setup:
+    name: Configure private Kubernetes cluster
+    needs: apply
+    environment: infra-deplyoment
+    runs-on: [self-hosted, linux, tasky-eks]
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Runtime Security Agent (Cimon)
+        uses: cycodelabs/cimon-action@1374f7193c5a4390740fa451feb05ce812955958
+        with:
+          prevent: false
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Assume cluster setup role
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd
+        with:
+          role-to-assume: ${{ needs.apply.outputs.cluster-role }}
+          aws-region: ${{ vars.AWS_REGION }}
+          allowed-account-ids: ${{ vars.AWS_ACCOUNT_ID }}
+      - name: Install Helm prerequisites and database Secrets
+        env:
+          CLUSTER_SETUP: ${{ needs.apply.outputs.cluster-setup }}
+          KUBECONFIG: ${{ runner.temp }}/tasky-infra-kubeconfig
+        run: python3 .github/scripts/cluster-setup.py
+      - name: Remove temporary kubeconfig
+        if: always()
+        env:
+          KUBECONFIG: ${{ runner.temp }}/tasky-infra-kubeconfig
+        run: rm -f "$KUBECONFIG"

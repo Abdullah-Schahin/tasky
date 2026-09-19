@@ -52,7 +52,7 @@ run "identity_and_state_isolation" {
 run "policy_size_limits" {
   command = apply
   assert {
-    condition     = length(aws_iam_role_policy.apply_iam.policy) + length(aws_iam_role_policy.apply_services.policy) + length(aws_iam_role_policy.state["apply"].policy) <= 10240 && length(aws_iam_policy.discovery.policy) <= 6144 && length(aws_iam_policy.workload_boundary.policy) <= 6144
+    condition     = length(aws_iam_role_policy.apply_iam.policy) + length(aws_iam_role_policy.apply_services.policy) + length(aws_iam_role_policy.state["apply"].policy) + length(aws_iam_role_policy.apply_ssm_document.policy) <= 10240 && length(aws_iam_policy.discovery.policy) <= 6144 && length(aws_iam_policy.workload_boundary.policy) <= 6144
     error_message = "Policies must fit the AWS role inline and managed policy size quotas."
   }
 }

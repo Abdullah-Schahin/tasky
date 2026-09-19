@@ -174,7 +174,13 @@ For this migration, apply Bootstrap first to update plan-role trust, then run In
 The runner needs private network connectivity to the EKS API. An ordinary GitHub-hosted
 runner cannot reach the private endpoint by default; the platform stack creates a dedicated private deployment runner; see [runner setup](../platform/RUNNER.md).
 
-## One-time cluster setup by an operator
+## Automated cluster setup
+
+Infra CI/CD now installs these prerequisites after Terraform Apply using the private
+runner and the dedicated `ci-cluster` OIDC role. See [cluster setup](../../CLUSTER-SETUP.md).
+The manual commands below are recovery references, not required first-deploy steps.
+
+### Manual recovery by an operator
 
 Namespace-scoped app CI cannot create namespaces or the required exercise
 ClusterRoleBinding. Before the first CI Helm installation, render the chart with real

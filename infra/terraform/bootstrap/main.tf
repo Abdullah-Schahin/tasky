@@ -16,7 +16,7 @@ locals {
   bucket_name           = "${var.prefix}-tfstate-${var.account_id}-${var.region}"
   bucket_arn            = "${local.arn}:s3:::${local.bucket_name}"
   github_subject_prefix = "repo:${split("/", var.github_repository)[0]}@${var.github_repository_owner_id}/${split("/", var.github_repository)[1]}@${var.github_repository_id}"
-  environments          = { plan = "infra-deplyoment", apply = "infra-deplyoment", app = "app-deployment" }
+  environments          = { plan = "infra-deplyoment", apply = "infra-deplyoment", app = "app-deployment", cluster = "infra-deplyoment" }
   oidc_arn              = var.AWS_GITHUB_OIDC_PROVIDER_ARN != null ? var.AWS_GITHUB_OIDC_PROVIDER_ARN : aws_iam_openid_connect_provider.github[0].arn
   workload_roles        = [for name in ["eks", "nodes", "mongodb", "config", "load-balancer-controller", "runner"] : "${local.account_arn}:role/${var.prefix}-${name}"]
   workload_policies     = [for name in ["mongodb-privilege-creep", "load-balancer-controller"] : "${local.account_arn}:policy/${var.prefix}-${name}"]
@@ -203,4 +203,31 @@ resource "aws_iam_role_policy" "ecr" {
       each.key == "publish" ? ["ecr:InitiateLayerUpload", "ecr:UploadLayerPart", "ecr:CompleteLayerUpload", "ecr:PutImage"] : []
     ), Resource = "${local.arn}:ecr:${var.region}:${var.account_id}:repository/${var.prefix}/tasky" }
   ] })
+}
+
+# Privileged Kubernetes setup is isolated from normal app deployment and TF state.
+resource "aws_iam_role_policy" "cluster" {
+  name = "cluster-setup"
+  role = aws_iam_role.ci["cluster"].id
+  policy = jsonencode({ Version = "2012-10-17", Statement = [
+    { Effect = "Allow", Action = "eks:DescribeCluster", Resource = "${local.arn}:eks:${var.region}:${var.account_id}:cluster/${var.prefix}" },
+    { Effect = "Allow", Action = "secretsmanager:GetSecretValue", Resource = "${local.arn}:secretsmanager:${var.region}:${var.account_id}:secret:${var.prefix}/mongodb-*" },
+    { Effect = "Allow", Action = "ssm:SendCommand", Resource = "${local.arn}:ssm:${var.region}:${var.account_id}:document/${var.prefix}-mongodb-ca" },
+    { Effect = "Allow", Action = "ssm:SendCommand", Resource = "${local.arn}:ec2:${var.region}:${var.account_id}:instance/*", Condition = { StringEquals = { "ssm:resourceTag/Name" = "${var.prefix}-mongodb" } } },
+    { Effect = "Allow", Action = "ssm:GetCommandInvocation", Resource = "*" }
+  ] })
+}
+resource "aws_iam_role_policy" "apply_ssm_document" {
+  name = "mongodb-ca-document"
+  role = aws_iam_role.ci["apply"].id
+  policy = jsonencode({ Version = "2012-10-17", Statement = [{
+    Effect = "Allow", Action = ["ssm:CreateDocument", "ssm:UpdateDocument", "ssm:UpdateDocumentDefaultVersion", "ssm:DeleteDocument", "ssm:DescribeDocument", "ssm:GetDocument", "ssm:ListDocumentVersions", "ssm:ListTagsForResource", "ssm:AddTagsToResource", "ssm:RemoveTagsFromResource"], Resource = "${local.arn}:ssm:${var.region}:${var.account_id}:document/${var.prefix}-mongodb-ca"
+  }] })
+}
+resource "aws_iam_role_policy" "plan_ssm_document" {
+  name = "mongodb-ca-document-read"
+  role = aws_iam_role.ci["plan"].id
+  policy = jsonencode({ Version = "2012-10-17", Statement = [{
+    Effect = "Allow", Action = ["ssm:DescribeDocument", "ssm:GetDocument", "ssm:ListDocumentVersions", "ssm:ListTagsForResource"], Resource = "${local.arn}:ssm:${var.region}:${var.account_id}:document/${var.prefix}-mongodb-ca"
+  }] })
 }
