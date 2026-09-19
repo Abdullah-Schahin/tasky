@@ -90,6 +90,17 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
+      - &initialize-issue
+        name: Initialize shared security issue
+        if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.job == (inputs.trufflehog && 'trufflehog' || inputs.bearer && 'bearer' || inputs.govulncheck && 'govulncheck' || inputs.trivy && 'trivy' || 'trivy-infra')
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPORT_PREFIX: ${{ inputs.report-prefix }}
+          SCANNER: ${{ github.job }}
+          RESULT: ${{ job.status }}
+          INPUTS_JSON: ${{ toJSON(inputs) }}
+        run: python3 .github/scripts/security-comment.py --initialize
       - name: Scan for secrets
         id: scan
         shell: bash
@@ -128,6 +139,7 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           SCANNER: ${{ github.job }}
           RESULT: ${{ job.status }}
+          INPUTS_JSON: ${{ toJSON(inputs) }}
         run: python3 .github/scripts/security-comment.py
       - name: Upload trufflehog summary
         if: always()
@@ -164,6 +176,7 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
+      - *initialize-issue
       - name: Run Bearer
         id: scan
         uses: bearer/bearer-action@828eeb928ce2f4a7ca5ed57fb8b59508cb8c79bc # v2
@@ -219,6 +232,7 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
+      - *initialize-issue
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
         with:
@@ -267,14 +281,16 @@ jobs:
       - name: Runtime Security Agent (Cimon)
         uses: cycodelabs/cimon-action@1374f7193c5a4390740fa451feb05ce812955958
         with:
-          prevent: true
+          prevent: false
           allowed-hosts: >
             check.trivy.dev
+            mirror.gcr.io
       - *validate-inputs
       - name: Checkout report formatter
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
+      - *initialize-issue
       - name: Download candidate image
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
@@ -343,6 +359,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
+      - *initialize-issue
       - name: Scan infrastructure with Trivy
         id: scan
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25

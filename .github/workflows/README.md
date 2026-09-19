@@ -110,12 +110,13 @@ See [complete setup](../../infra/terraform/domain/registration/README.md).
 
 ## Main-branch security issues
 
-On main-branch pushes or manual runs, each scanner checks for an open same-repository
-PR associated with the scanned commit. If present, it comments there; otherwise it
-creates an issue containing its sanitized results, including clean scans, assigned to
-`github.actor` (the original run actor, also on reruns). Each prefix/scanner/run has
-one issue, updated on reruns, without concurrent jobs overwriting each other's reports.
-`comment-on-pr` controls PR-event comments; main-branch reporting always runs.
-Enable repository Issues. If GitHub rejects assignment or publication, the reporting
-step shows an error; scan summaries and artifacts remain available and scanner verdicts
-remain unchanged. Fork PRs do not publish comments or issues.
+Main-branch runs without an associated open same-repository PR create one issue per
+workflow run, labeled `ci-security-findings` and assigned to the original run actor.
+The first enabled scanner initializes it before scanning; all scanners publish their
+results as individual comments on that issue. Scans remain parallel, and comments do
+not overwrite one another. Reruns update each scanner's existing comment. Successful
+statuses are omitted; failures remain explicit. Clean findings are still included.
+The label is created automatically if missing. Each current caller invokes this
+reusable workflow once per run. Keep that single-call pattern for issue initialization.
+PR runs continue to get immediate per-scanner PR comments. Enable repository Issues.
+Publishing errors leave scanner verdicts unchanged; summaries/artifacts remain available.
