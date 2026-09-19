@@ -56,7 +56,7 @@ jobs:
   trufflehog:
     # Also reject calls with no selected scanner without allocating a validation job.
     if: inputs.trufflehog || !(inputs.bearer || inputs.govulncheck || inputs.trivy || inputs.trivy-infra)
-    name: TruffleHog
+    name: Secrets
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -143,7 +143,7 @@ jobs:
 
   bearer:
     if: inputs.bearer
-    name: Bearer
+    name: SAST
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -198,7 +198,7 @@ jobs:
 
   govulncheck:
     if: inputs.govulncheck
-    name: govulncheck
+    name: SCA
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -255,7 +255,7 @@ jobs:
           retention-days: 7
 
   trivy:
-    name: Trivy image scan
+    name: Image
     if: inputs.trivy
     runs-on: ubuntu-latest
     permissions:
@@ -323,7 +323,7 @@ jobs:
           retention-days: 7
 
   trivy-infra:
-    name: Trivy TF scan
+    name: Infrastructure
     if: inputs.trivy-infra
     runs-on: ubuntu-latest
     permissions:

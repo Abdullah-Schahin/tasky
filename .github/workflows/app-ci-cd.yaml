@@ -205,7 +205,7 @@ jobs:
 
   security-scans:
     name: Security Scans
-    needs: [test, containerize]
+    needs: [build, test, containerize]
     uses: ./.github/workflows/security-scans.yaml
     permissions:
       contents: read
