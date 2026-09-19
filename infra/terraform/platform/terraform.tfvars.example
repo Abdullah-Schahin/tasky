@@ -16,8 +16,8 @@ mongodb_secret_arn = null
 # mongodb_secret_kms_key_arn = "arn:aws:kms:us-east-1:ACCOUNT:key/KEY_ID"
 existing_cloudtrail_arn = "arn:aws:cloudtrail:us-east-2:525391386877:trail/management-events-lab"
 enable_config          = true
-enable_security_hub    = false
-enable_guardduty       = false
+enable_security_hub    = true
+enable_guardduty       = true
 
 # Set these from infra/terraform/bootstrap outputs before enabling AWS CI/CD.
 # workload_permissions_boundary_arn = "arn:aws:iam::516027198761:policy/tasky-wiz-workload-boundary"

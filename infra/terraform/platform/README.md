@@ -30,8 +30,8 @@ adds a restricted public API endpoint without moving the cluster ENIs or nodes.
 
 Terraform creates only the app's VPC/routes/NAT, EKS with two workers, ECR, MongoDB
 instance and credentials/key-pair, backup bucket, private audit destination, necessary
-IAM and security groups, AWS Config, and the app ACM certificate. Security Hub and GuardDuty are optional and
-**off by default**. There is no Terraform-created ALB, Route 53 zone,
+IAM and security groups, AWS Config, and the app ACM certificate. Security Hub CSPM (default standards) and GuardDuty are
+**enabled by default**. There is no Terraform-created ALB, Route 53 zone,
 extra bastion, standalone guardrail demo bucket, VPC endpoint fleet, or redundant audit services. CI bootstrap is maintained separately in `../bootstrap`.
 The existing secure audit bucket also serves as the separate preventive-control example.
 
@@ -233,7 +233,7 @@ ECR is ready for a future registry migration; the existing GHCR app pipeline is 
 | MongoDB network | SG-to-SG TCP/27017, TLS and distinct users | Secure baseline | Retain and use managed certificate lifecycle |
 | Audit S3 | Public access blocked, versioned, SSE-S3, deny non-TLS | Preventive control | Centralized immutable audit storage |
 | AWS Config | Public S3, unrestricted SSH and versioning rules | Detective control | Broader continuous configuration coverage |
-| Security Hub / GuardDuty | Disabled until explicitly enabled | Sandbox/optional | Enable and operationalize findings |
+| Security Hub / GuardDuty | Enabled in platform configuration | Detection/posture | Review findings after approved apply |
 | App service account | Existing Helm cluster-admin/token/PSA exercise gaps | Yes | Least-privilege RBAC and workload guardrails |
 
 The IAM attack path is realistic privilege creep, not AdministratorAccess: compromise
@@ -274,7 +274,7 @@ Do not claim these checks passed based on `terraform validate` or `plan` alone.
    `enabledClusterLogTypes`, then inspect `/aws/eks/tasky-wiz/cluster` in CloudWatch.
 6. **Detective controls:** check Config recorder status and rule evaluation results
    after recording settles. Expect public-S3, open-SSH and backup-versioning findings.
-   If opted in, verify Hub/GuardDuty enrollment and actual findings independently.
+   After apply, verify Hub/GuardDuty enrollment and actual findings independently.
 7. **Preventive control:** inspect secure audit bucket settings and explicit TLS Deny.
    Check that the backup bucket still permits its intended anonymous reads/listing.
 8. **Tags:** inspect taggable resources and controller-created ALB/target groups for

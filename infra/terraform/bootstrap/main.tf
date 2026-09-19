@@ -134,7 +134,7 @@ resource "aws_iam_role_policy" "apply_iam" {
     { Effect = "Allow", Action = ["iam:CreateInstanceProfile", "iam:DeleteInstanceProfile", "iam:AddRoleToInstanceProfile", "iam:RemoveRoleFromInstanceProfile", "iam:TagInstanceProfile", "iam:UntagInstanceProfile"], Resource = "${local.account_arn}:instance-profile/${var.prefix}-mongodb" },
     { Effect = "Allow", Action = "iam:PassRole", Resource = local.workload_roles, Condition = { StringEquals = { "iam:PassedToService" = ["ec2.amazonaws.com", "eks.amazonaws.com", "config.amazonaws.com"] } } },
     { Effect = "Allow", Action = ["iam:CreateOpenIDConnectProvider", "iam:DeleteOpenIDConnectProvider", "iam:UpdateOpenIDConnectProviderThumbprint", "iam:AddClientIDToOpenIDConnectProvider", "iam:RemoveClientIDFromOpenIDConnectProvider", "iam:TagOpenIDConnectProvider", "iam:UntagOpenIDConnectProvider"], Resource = "${local.account_arn}:oidc-provider/oidc.eks.${var.region}.amazonaws.com/id/*" },
-    { Effect = "Allow", Action = "iam:CreateServiceLinkedRole", Resource = "${local.account_arn}:role/aws-service-role/*", Condition = { StringEquals = { "iam:AWSServiceName" = ["eks.amazonaws.com", "eks-nodegroup.amazonaws.com", "autoscaling.amazonaws.com", "elasticloadbalancing.amazonaws.com"] } } }
+    { Effect = "Allow", Action = "iam:CreateServiceLinkedRole", Resource = "${local.account_arn}:role/aws-service-role/*", Condition = { StringEquals = { "iam:AWSServiceName" = ["eks.amazonaws.com", "eks-nodegroup.amazonaws.com", "autoscaling.amazonaws.com", "elasticloadbalancing.amazonaws.com", "guardduty.amazonaws.com", "securityhub.amazonaws.com"] } } }
   ] })
 }
 # Network APIs include create operations without resource-level restrictions.

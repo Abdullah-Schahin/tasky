@@ -298,8 +298,7 @@ resource "aws_config_config_rule" "exercise" {
   }
   depends_on = [aws_config_configuration_recorder_status.main]
 }
-# Optional services are opt-in, avoiding unsupported-service apply failures by default.
-# Terraform cannot catch AWS AccessDenied and continue an apply; inspect before enabling.
+# Regional security services. Import existing enrollments before managing them.
 resource "aws_securityhub_account" "main" {
   count                    = var.enable_security_hub ? 1 : 0
   enable_default_standards = true

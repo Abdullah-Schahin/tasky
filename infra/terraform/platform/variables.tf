@@ -113,14 +113,14 @@ variable "enable_config" {
   default     = true
 }
 variable "enable_security_hub" {
-  description = "Optional account-level service. Enable only after confirming sandbox support and absence of an existing hub."
+  description = "Enable Security Hub CSPM with default standards. Import an existing hub before managing it."
   type        = bool
-  default     = false
+  default     = true
 }
 variable "enable_guardduty" {
-  description = "Optional regional service. Enable only after confirming sandbox support and absence of an existing detector."
+  description = "Enable the regional GuardDuty detector. Import an existing detector before managing it."
   type        = bool
-  default     = false
+  default     = true
 }
 
 variable "workload_permissions_boundary_arn" {
