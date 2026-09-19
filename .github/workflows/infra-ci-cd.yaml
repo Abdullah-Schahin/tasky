@@ -225,7 +225,7 @@ jobs:
     needs: apply
     environment: infra-deplyoment
     runs-on: [self-hosted, linux, tasky-eks]
-    timeout-minutes: 30
+    timeout-minutes: 40
     permissions:
       contents: read
       id-token: write

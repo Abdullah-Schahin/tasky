@@ -43,7 +43,9 @@ def main():
     if not command:
         raise RuntimeError('MongoDB is not available through SSM; inspect its agent and instance role')
     ca = None
-    for _ in range(60):
+    # The document may wait ten minutes for cloud-init; allow execution and delivery overhead.
+    deadline = time.monotonic() + 720
+    while time.monotonic() < deadline:
         try:
             result = json.loads(run('aws', 'ssm', 'get-command-invocation', '--command-id', command,
                 '--instance-id', c['mongo_instance'], '--output', 'json'))
@@ -54,10 +56,19 @@ def main():
             ca = result['StandardOutputContent'].strip()
             break
         if result['Status'] in ('Failed', 'Cancelled', 'TimedOut'):
-            raise RuntimeError('MongoDB bootstrap/service/CA check failed; inspect cloud-init on MongoDB')
+            codes = {
+                'TASKY_BOOTSTRAP_TIMEOUT': 'cloud-init did not finish within 10 minutes',
+                'TASKY_BOOTSTRAP_INCOMPLETE': 'cloud-init finished without successful database setup and first backup',
+                'TASKY_MONGODB_INACTIVE': 'mongod is not active',
+                'TASKY_CA_INVALID': 'MongoDB certificate does not validate against its CA',
+            }
+            # Only emit known diagnostics, never arbitrary SSM output or secrets.
+            detail = next((v for k, v in codes.items() if k in result.get('StandardErrorContent', '')),
+                          'readiness document failed; inspect its SSM invocation')
+            raise RuntimeError(f"MongoDB {c['mongo_instance']}: {detail}; SSM command {command}")
         time.sleep(5)
     if not ca or not ca.startswith('-----BEGIN CERTIFICATE-----'):
-        raise RuntimeError('Valid MongoDB CA was not returned')
+        raise RuntimeError(f"MongoDB {c['mongo_instance']}: CA not returned within readiness deadline; SSM command {command}")
     credentials = json.loads(json.loads(run('aws', 'secretsmanager', 'get-secret-value',
         '--secret-id', c['mongo_secret'], '--output', 'json'))['SecretString'])
     password = credentials['app_password']

@@ -20,7 +20,19 @@ resource "aws_ssm_document" "mongodb_ca" {
   document_type = "Command"
   content = jsonencode({ schemaVersion = "2.2", mainSteps = [{
     action = "aws:runShellScript", name = "ReadPublicCA", inputs = {
-      runCommand = ["set -eu", "test -f /var/lib/tasky-backup/bootstrap-complete", "systemctl is-active --quiet mongod", "cat /etc/mongodb/tls/ca.crt"]
+      timeoutSeconds = "660"
+      runCommand = [
+        "set -eu",
+        # EC2/SSM ready is earlier than cloud-init completion. Never skip this wait.
+        "rc=0; timeout 600 cloud-init status --wait >/dev/null 2>&1 || rc=$?",
+        "if [ \"$rc\" -eq 124 ]; then echo TASKY_BOOTSTRAP_TIMEOUT >&2; exit 1; fi",
+        # A manually repaired host may retain cloud-init's historical error status.
+        # The marker is written only after successful user setup and first backup.
+        "test -f /var/lib/tasky-backup/bootstrap-complete || { echo TASKY_BOOTSTRAP_INCOMPLETE >&2; exit 1; }",
+        "systemctl is-active --quiet mongod || { echo TASKY_MONGODB_INACTIVE >&2; exit 1; }",
+        "openssl verify -CAfile /etc/mongodb/tls/ca.crt /etc/mongodb/tls/server.crt >/dev/null 2>&1 || { echo TASKY_CA_INVALID >&2; exit 1; }",
+        "cat /etc/mongodb/tls/ca.crt"
+      ]
     }
   }] })
 }

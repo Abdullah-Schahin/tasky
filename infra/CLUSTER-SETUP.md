@@ -52,3 +52,8 @@ before using this release; the workflow does not silently take ownership.
 The bootstrap chart keeps namespace/RBAC on uninstall to avoid accidental data deletion.
 Controller upgrades need chart/CRD and IAM-policy review together; this implementation
 pins the initial version rather than automatically upgrading it.
+
+Readiness is not inferred from EC2/SSM availability. The CA document waits up to ten
+minutes for cloud-init, then checks the successful-bootstrap marker, active mongod
+and certificate chain. Cluster setup polls long enough for that wait. On failure it
+reports a safe reason, instance ID and SSM command ID without publishing raw output.
