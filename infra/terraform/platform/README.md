@@ -30,8 +30,8 @@ adds a restricted public API endpoint without moving the cluster ENIs or nodes.
 
 Terraform creates only the app's VPC/routes/NAT, EKS with two workers, ECR, MongoDB
 instance and credentials/key-pair, backup bucket, private audit destination, necessary
-IAM and security groups, and AWS Config. Security Hub and GuardDuty are optional and
-**off by default**. There is no Terraform-created ALB, Route 53 zone, ACM certificate,
+IAM and security groups, AWS Config, and the app ACM certificate. Security Hub and GuardDuty are optional and
+**off by default**. There is no Terraform-created ALB, Route 53 zone,
 extra bastion, standalone guardrail demo bucket, VPC endpoint fleet, or redundant audit services. CI bootstrap is maintained separately in `../bootstrap`.
 The existing secure audit bucket also serves as the separate preventive-control example.
 
@@ -211,10 +211,10 @@ logs its MongoDB URI at startup; avoid exposing those logs until separately corr
 The chart's optional `mongodbTLS.existingSecret: tasky-mongo-ca` mounts the trust file
 at `/etc/tasky-mongo-tls/ca.crt`. Local Minikube leaves this feature disabled.
 
-Supply a real hostname/ACM certificate in the generated values file and a verified
-image digest before the app Helm deployment. ACM/DNS access has not been assumed or
-provisioned. If those services are unavailable, stop and choose a documented TLS
-alternative; the current ALB chart intentionally will not deploy placeholder TLS values.
+The platform requests ACM for `tasky-abu-pse.apps.dj`. Add the validation CNAME from
+`app_tls` in FreeDNS and wait for certificate issuance. Supply that ARN and a verified
+image digest for Helm deployment. App CI outputs the ALB hostname for the FreeDNS
+application CNAME; see [FreeDNS setup](../../freedns.md). DNS updates remain manual.
 ECR is ready for a future registry migration; the existing GHCR app pipeline is unchanged.
 
 ## Findings, controls and production changes

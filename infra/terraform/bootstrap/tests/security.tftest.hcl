@@ -13,15 +13,17 @@ mock_provider "aws" {
   }
 }
 variables {
-  region            = "us-east-1"
-  account_id        = "516027198761"
-  github_repository = "Abdullah-Schahin/tasky"
+  region                     = "us-east-1"
+  account_id                 = "516027198761"
+  github_repository          = "Abdullah-Schahin/tasky"
+  github_repository_owner_id = "33698941"
+  github_repository_id       = "1374160582"
 }
 run "identity_and_state_isolation" {
   command = apply
   assert {
     condition = alltrue([for key, role in aws_iam_role.ci :
-      jsondecode(role.assume_role_policy).Statement[0].Condition.StringEquals["token.actions.githubusercontent.com:sub"] == "repo:Abdullah-Schahin/tasky:environment:${local.environments[key]}" &&
+      jsondecode(role.assume_role_policy).Statement[0].Condition.StringEquals["token.actions.githubusercontent.com:sub"] == "repo:Abdullah-Schahin@33698941/tasky@1374160582:environment:${local.environments[key]}" &&
       jsondecode(role.assume_role_policy).Statement[0].Condition.StringEquals["token.actions.githubusercontent.com:aud"] == "sts.amazonaws.com"
     ])
     error_message = "Every CI role must trust only its exact repository/environment and STS audience."
@@ -35,7 +37,7 @@ run "identity_and_state_isolation" {
     error_message = "Plan must not write infrastructure state."
   }
   assert {
-    condition     = jsondecode(aws_iam_role_policy.app.policy).Statement[0].Action == "eks:DescribeCluster" && length(jsondecode(aws_iam_role_policy.app.policy).Statement) == 1
+    condition     = jsondecode(aws_iam_role_policy.app.policy).Statement[0].Action == "eks:DescribeCluster" && length(jsondecode(aws_iam_role_policy.app.policy).Statement) == 3 && alltrue([for s in jsondecode(aws_iam_role_policy.app.policy).Statement : alltrue([for a in try(tolist(s.Action), [s.Action]) : startswith(a, "eks:Describe") || startswith(a, "acm:Describe") || startswith(a, "elasticloadbalancing:Describe")])])
     error_message = "The app role must not gain infrastructure or state privileges."
   }
   assert {
@@ -62,18 +64,5 @@ run "reuse_existing_oidc" {
   assert {
     condition     = length(aws_iam_openid_connect_provider.github) == 0
     error_message = "Reusing an existing GitHub provider must not create a duplicate."
-  }
-}
-
-run "scoped_app_dns" {
-  command = apply
-  variables { app_dns_zone_id = "ZTEST123" }
-  assert {
-    condition     = jsondecode(aws_iam_role_policy.app_dns[0].policy).Statement[1].Resource == "arn:aws:route53:::hostedzone/ZTEST123" && jsondecode(aws_iam_role_policy.app_dns[0].policy).Statement[1].Condition["ForAllValues:StringEquals"]["route53:ChangeResourceRecordSetsNormalizedRecordNames"][0] == "tasky.abu-pse.link"
-    error_message = "App role DNS writes must target only its own name in the selected zone."
-  }
-  assert {
-    condition     = jsondecode(aws_s3_bucket_policy.state.policy).Statement[2].Effect == "Deny" && contains(jsondecode(aws_s3_bucket_policy.state.policy).Statement[2].Resource, "${local.bucket_arn}/domain-registration/*")
-    error_message = "App deployment must not read registration contact state."
   }
 }

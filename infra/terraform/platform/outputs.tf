@@ -28,8 +28,8 @@ output "helm_aws_values" {
   value = yamlencode({
     ingress = {
       className      = "alb"
-      host           = "REPLACE_WITH_HOSTNAME"
-      certificateArn = "REPLACE_WITH_ACM_CERTIFICATE_ARN"
+      host           = aws_acm_certificate.app.domain_name
+      certificateArn = aws_acm_certificate.app.arn
       publicSubnets  = [for s in aws_subnet.public : s.id]
     }
     mongodbTLS = { existingSecret = "tasky-mongo-ca" }
@@ -38,4 +38,17 @@ output "helm_aws_values" {
 output "mongodb_secret_arn" {
   description = "ARN only, never credential values."
   value       = local.mongodb_secret_arn
+}
+
+output "app_tls" {
+  description = "Add the validation CNAME in FreeDNS; app deployment waits for certificate issuance."
+  value = {
+    domain          = aws_acm_certificate.app.domain_name
+    certificate_arn = aws_acm_certificate.app.arn
+    validation_records = [for record in aws_acm_certificate.app.domain_validation_options : {
+      name  = record.resource_record_name
+      type  = record.resource_record_type
+      value = record.resource_record_value
+    }]
+  }
 }

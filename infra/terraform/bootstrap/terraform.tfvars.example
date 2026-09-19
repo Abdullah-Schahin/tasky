@@ -4,3 +4,7 @@ github_repository = "Abdullah-Schahin/tasky"
 prefix = "tasky-wiz"
 # Set this if the account already has a GitHub provider; do not create a duplicate.
 # AWS_GITHUB_OIDC_PROVIDER_ARN = "arn:aws:iam::516027198761:oidc-provider/token.actions.githubusercontent.com"
+
+# Automatically supplied by GitHub Actions; required for local bootstrap runs.
+github_repository_owner_id = "33698941"
+github_repository_id = "1374160582"

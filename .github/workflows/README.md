@@ -98,15 +98,13 @@ on the first run, retains it for subsequent runs, and blocks deletes/replacement
 See [bootstrap setup](../../infra/terraform/bootstrap/README.md) for the exact variables, secrets,
 state migration and environment protection requirements.
 
-## Domain and app HTTPS
+## FreeDNS and app HTTPS
 
-The `include-domain` option in `infra-ci-cd.yaml` is manually triggered on main in the protected bootstrap environment.
-It registers `abu-pse.link` only with apply checked, adopts the registration-created
-zone and provisions an ACM certificate for `tasky.abu-pse.link`. Registration contacts
-come from `DOMAIN_CONTACT_JSON`; the app hostname comes from app-deployment secret
-`APP_DOMAIN`. The opt-in app deployment job verifies the signed release, deploys Helm
-on a runner with private EKS connectivity, then applies the ALB DNS alias stack.
-See [complete setup](../../infra/terraform/domain/registration/README.md).
+Domain registration and the domain workflow job are removed. Platform Terraform requests
+an ACM certificate for `tasky-abu-pse.apps.dj` and outputs its external DNS validation
+CNAME in the apply summary. Add it in FreeDNS, wait for issuance, then deploy the app.
+The app summary provides the ALB target for the FreeDNS application CNAME. No DNS
+credentials or hosted zone ID are needed by app CI. See [setup](../../infra/freedns.md).
 
 ## Main-branch security issues
 

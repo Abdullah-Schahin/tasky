@@ -1,11 +1,10 @@
-"""Deploy the verified image, then point the app's Route 53 alias at its ALB."""
+"""Deploy the verified image, then output the FreeDNS CNAME target for its ALB."""
 import json
 import os
 from pathlib import Path
 import re
 import subprocess
 import time
-from terraform_ci import write_backend, verify_state_bucket
 
 
 def run(*args):
@@ -14,8 +13,8 @@ def run(*args):
 
 def values(env):
     host = env.get('APP_DOMAIN', '')
-    if host != 'tasky.abu-pse.link':
-        raise ValueError('Set APP_DOMAIN to tasky.abu-pse.link')
+    if host != 'tasky-abu-pse.apps.dj':
+        raise ValueError('Set APP_DOMAIN to tasky-abu-pse.apps.dj')
     region, account = env['AWS_REGION'], env['AWS_ACCOUNT_ID']
     cert = env['ACM_CERTIFICATE_ARN']
     if not re.fullmatch(f'arn:aws:acm:{re.escape(region)}:{re.escape(account)}:certificate/[a-f0-9-]+', cert):
@@ -23,8 +22,6 @@ def values(env):
     subnets = json.loads(env['PUBLIC_SUBNET_IDS'])
     if not isinstance(subnets, list) or len(set(subnets)) < 2 or not all(re.fullmatch(r'subnet-[a-f0-9]+', s) for s in subnets):
         raise ValueError('PUBLIC_SUBNET_IDS must contain at least two public subnet IDs')
-    if not re.fullmatch(r'Z[A-Z0-9]+', env['APP_HOSTED_ZONE_ID']):
-        raise ValueError('Invalid APP_HOSTED_ZONE_ID')
     if not re.fullmatch(r'sha256:[a-f0-9]{64}', env['IMAGE_DIGEST']):
         raise ValueError('Deployment requires a published image digest')
     image = env['IMAGE_REF'].rsplit(':', 1)[0] + '@' + env['IMAGE_DIGEST']
@@ -65,17 +62,12 @@ def main():
         time.sleep(5)
     if lb is None:
         raise RuntimeError('Ingress ALB with the expected HTTPS certificate did not become ready within 10 minutes')
-    dns_values=dict(account_id=env['AWS_ACCOUNT_ID'], region=env['AWS_REGION'],
-                    hosted_zone_id=env['APP_HOSTED_ZONE_ID'],alb_arn=lb['LoadBalancerArn'])
-    Path('infra/terraform/app-dns/ci.auto.tfvars.json').write_text(json.dumps(dns_values))
-    verify_state_bucket(env)
-    backend_file=temp/'app-dns-backend.hcl'
-    write_backend(backend_file, env['TF_STATE_BUCKET'], 'app-dns/terraform.tfstate', env['AWS_REGION'], env['AWS_ACCOUNT_ID'])
-    subprocess.run(['terraform','-chdir=infra/terraform/app-dns','init','-input=false','-lockfile=readonly',f'-backend-config={backend_file}'],check=True)
-    plan=temp/'app-dns.tfplan'
-    subprocess.run(['terraform','-chdir=infra/terraform/app-dns','plan','-input=false','-lock-timeout=5m',f'-out={plan}'],check=True)
-    subprocess.run(['terraform','-chdir=infra/terraform/app-dns','apply','-input=false','-lock-timeout=5m',str(plan)],check=True)
-    print('Application DNS configured: https://tasky.abu-pse.link')
+    record = f"{env['APP_DOMAIN']} CNAME {lb['DNSName']}"
+    print('Set this FreeDNS record (DNS only, not URL forwarding): ' + record)
+    with open(env.get('GITHUB_STEP_SUMMARY', os.devnull), 'a') as summary:
+        summary.write(f"## FreeDNS application record\n\n`{record}`\n\n")
+        summary.write('Replace any A/AAAA record at the app hostname with this CNAME. Keep the separate ACM validation CNAME.\n\n')
+        summary.write(f"After DNS propagates: https://{env['APP_DOMAIN']}\n")
 
 
 if __name__ == '__main__':

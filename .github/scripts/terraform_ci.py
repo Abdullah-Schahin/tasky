@@ -7,9 +7,7 @@ import subprocess
 import sys
 
 ROOT = Path('infra/terraform')
-ROOTS = {'bootstrap': ROOT/'bootstrap', 'platform': ROOT/'platform',
-         'domain-registration': ROOT/'domain/registration', 'domain-tls': ROOT/'domain/tls',
-         'app-dns': ROOT/'app-dns'}
+ROOTS = {'bootstrap': ROOT/'bootstrap', 'platform': ROOT/'platform'}
 
 
 def require(condition, message):
@@ -60,45 +58,35 @@ def prepare(mode, env):
     if mode == 'bootstrap':
         prefix = env.get('BOOTSTRAP_PREFIX') or 'tasky-wiz'
         repository = env.get('GITHUB_REPOSITORY', '')
+        owner_id = env.get('GITHUB_REPOSITORY_OWNER_ID', '')
+        repository_id = env.get('GITHUB_REPOSITORY_ID', '')
+        require(owner_id.isdigit() and repository_id.isdigit(), 'GitHub Actions repository owner/repository IDs are required for immutable OIDC trust.')
         key = env.get('TF_STATE_KEY') or 'infra/terraform.tfstate'
         oidc = env.get('AWS_GITHUB_OIDC_PROVIDER_ARN') or None
-        zone = (env.get('APP_HOSTED_ZONE_ID') or '').strip().removeprefix('/hostedzone/') or None
         require(re.fullmatch(r'[a-z][a-z0-9-]{2,19}', prefix), 'Invalid BOOTSTRAP_PREFIX')
         require(re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+', repository), 'Invalid GitHub repository')
         require(re.fullmatch(r'infra/[A-Za-z0-9/_-]+\.tfstate', key), 'TF_STATE_KEY must be under infra/ and end in .tfstate')
         require(oidc is None or oidc == f'arn:aws:iam::{account}:oidc-provider/token.actions.githubusercontent.com', 'OIDC provider must belong to this account')
-        require(zone is None or re.fullmatch(r'Z[A-Z0-9]+', zone), 'APP_HOSTED_ZONE_ID must be a Route 53 hosted zone ID starting with Z, not a domain name or ARN. Remove the GitHub variable from environment/repository/organization settings until the hosted zone exists.')
         private_json(ROOTS[mode]/'ci.auto.tfvars.json', dict(account_id=account, region=region,
             prefix=prefix, github_repository=repository, state_key=key,
-            AWS_GITHUB_OIDC_PROVIDER_ARN=oidc, app_dns_zone_id=zone))
+            github_repository_owner_id=owner_id, github_repository_id=repository_id,
+            AWS_GITHUB_OIDC_PROVIDER_ARN=oidc))
         bucket = f'{prefix}-tfstate-{account}-{region}'
         write_backend(temp/'bootstrap-backend.hcl', bucket, 'bootstrap/terraform.tfstate', region, account)
         with open(env['GITHUB_ENV'], 'a') as output:
             output.write(f'BOOTSTRAP_STATE_BUCKET={bucket}\n')
     elif mode == 'platform':
-        values = json.loads(env['TFVARS_JSON'])
+        raw_values = env.get('TFVARS_JSON', '').strip()
+        require(raw_values, 'Set the repository Actions variable TFVARS_JSON to the platform inputs as JSON; it is currently missing or empty.')
+        values = json.loads(raw_values)
         require(values['account_id'] == account and values['region'] == region, 'Unexpected target account/region')
         prefix = values.get('prefix', 'tasky-wiz')
         require(values.get('workload_permissions_boundary_arn') == f'arn:aws:iam::{account}:policy/{prefix}-workload-boundary', 'Use the bootstrap workload boundary')
         require(values.get('app_deploy_role_arn') == f'arn:aws:iam::{account}:role/{prefix}-ci-app', 'Use the bootstrap app role')
         private_json(ROOTS[mode]/'ci.auto.tfvars.json', values)
         write_backend(temp/'backend.hcl', env['TF_STATE_BUCKET'], env['TF_STATE_KEY'], region, account)
-    elif mode == 'domain':
-        try:
-            contact = json.loads(env['DOMAIN_CONTACT_JSON'])
-            fields = ['first_name', 'last_name', 'email', 'phone_number', 'address_line_1', 'city', 'country_code', 'zip_code']
-            require(isinstance(contact, dict) and all(isinstance(contact.get(k), str) and contact[k].strip() for k in fields), 'Invalid contact')
-        except (ValueError, KeyError):
-            raise ValueError('DOMAIN_CONTACT_JSON must contain all required contact fields') from None
-        for value in contact.values():
-            if isinstance(value, str) and value:
-                print('::add-mask::' + value.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A'))
-        private_json(ROOTS['domain-registration']/'ci.auto.tfvars.json', dict(account_id=account, region='us-east-1', contact=contact))
-        private_json(ROOTS['domain-tls']/'ci.auto.tfvars.json', dict(account_id=account, region=region))
-        for root in ['domain-registration', 'domain-tls']:
-            write_backend(temp/f'{root}-backend.hcl', env['TF_STATE_BUCKET'], f'{root}/terraform.tfstate', region, account)
     else:
-        raise ValueError('Use bootstrap, platform, domain or check-state')
+        raise ValueError('Use bootstrap, platform or check-state')
 
 
 if __name__ == '__main__':

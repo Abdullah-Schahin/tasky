@@ -11,15 +11,16 @@ provider "aws" {
 }
 data "aws_partition" "current" {}
 locals {
-  arn               = "arn:${data.aws_partition.current.partition}"
-  account_arn       = "${local.arn}:iam::${var.account_id}"
-  bucket_name       = "${var.prefix}-tfstate-${var.account_id}-${var.region}"
-  bucket_arn        = "${local.arn}:s3:::${local.bucket_name}"
-  environments      = { plan = "infra-deplyoment", apply = "infra-deplyoment", app = "app-deployment" }
-  oidc_arn          = var.AWS_GITHUB_OIDC_PROVIDER_ARN != null ? var.AWS_GITHUB_OIDC_PROVIDER_ARN : aws_iam_openid_connect_provider.github[0].arn
-  workload_roles    = [for name in ["eks", "nodes", "mongodb", "config", "load-balancer-controller"] : "${local.account_arn}:role/${var.prefix}-${name}"]
-  workload_policies = [for name in ["mongodb-privilege-creep", "load-balancer-controller"] : "${local.account_arn}:policy/${var.prefix}-${name}"]
-  managed_policies  = [for name in ["AmazonEKSClusterPolicy", "AmazonEKSWorkerNodePolicy", "AmazonEC2ContainerRegistryPullOnly", "AmazonEKS_CNI_Policy", "service-role/AWS_ConfigRole"] : "${local.arn}:iam::aws:policy/${name}"]
+  arn                   = "arn:${data.aws_partition.current.partition}"
+  account_arn           = "${local.arn}:iam::${var.account_id}"
+  bucket_name           = "${var.prefix}-tfstate-${var.account_id}-${var.region}"
+  bucket_arn            = "${local.arn}:s3:::${local.bucket_name}"
+  github_subject_prefix = "repo:${split("/", var.github_repository)[0]}@${var.github_repository_owner_id}/${split("/", var.github_repository)[1]}@${var.github_repository_id}"
+  environments          = { plan = "infra-deplyoment", apply = "infra-deplyoment", app = "app-deployment" }
+  oidc_arn              = var.AWS_GITHUB_OIDC_PROVIDER_ARN != null ? var.AWS_GITHUB_OIDC_PROVIDER_ARN : aws_iam_openid_connect_provider.github[0].arn
+  workload_roles        = [for name in ["eks", "nodes", "mongodb", "config", "load-balancer-controller"] : "${local.account_arn}:role/${var.prefix}-${name}"]
+  workload_policies     = [for name in ["mongodb-privilege-creep", "load-balancer-controller"] : "${local.account_arn}:policy/${var.prefix}-${name}"]
+  managed_policies      = [for name in ["AmazonEKSClusterPolicy", "AmazonEKSWorkerNodePolicy", "AmazonEC2ContainerRegistryPullOnly", "AmazonEKS_CNI_Policy", "service-role/AWS_ConfigRole"] : "${local.arn}:iam::aws:policy/${name}"]
 }
 resource "aws_iam_openid_connect_provider" "github" {
   count          = var.AWS_GITHUB_OIDC_PROVIDER_ARN == null ? 1 : 0
@@ -35,7 +36,7 @@ resource "aws_iam_role" "ci" {
     Principal = { Federated = local.oidc_arn },
     Condition = { StringEquals = {
       "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com",
-      "token.actions.githubusercontent.com:sub" = "repo:${var.github_repository}:environment:${each.value}"
+      "token.actions.githubusercontent.com:sub" = "${local.github_subject_prefix}:environment:${each.value}"
     } }
   }] })
 }
@@ -92,6 +93,7 @@ resource "aws_iam_policy" "discovery" {
   name = "${var.prefix}-ci-discovery"
   policy = jsonencode({ Version = "2012-10-17", Statement = [{
     Effect = "Allow", Resource = "*", Action = [
+      "acm:DescribeCertificate", "acm:ListTagsForCertificate",
       "ec2:Describe*", "eks:Describe*", "eks:List*", "autoscaling:Describe*",
       "iam:GetRole", "iam:GetRolePolicy", "iam:ListRolePolicies", "iam:ListAttachedRolePolicies", "iam:ListInstanceProfilesForRole",
       "iam:GetPolicy", "iam:GetPolicyVersion", "iam:ListPolicyVersions", "iam:GetInstanceProfile",
@@ -155,6 +157,8 @@ resource "aws_iam_role_policy" "apply_services" {
       "guardduty:CreateDetector", "guardduty:UpdateDetector", "guardduty:DeleteDetector", "guardduty:TagResource", "guardduty:UntagResource",
       "securityhub:EnableSecurityHub", "securityhub:DisableSecurityHub", "securityhub:UpdateSecurityHubConfiguration", "securityhub:TagResource", "securityhub:UntagResource"
     ], Resource = "*", Condition = { StringEquals = { "aws:RequestedRegion" = var.region } } },
+    { Effect = "Allow", Action = "acm:RequestCertificate", Resource = "*", Condition = { StringEquals = { "aws:RequestedRegion" = var.region }, "ForAllValues:StringEquals" = { "acm:DomainNames" = ["tasky-abu-pse.apps.dj"] } } },
+    { Effect = "Allow", Action = ["acm:DeleteCertificate", "acm:AddTagsToCertificate", "acm:RemoveTagsFromCertificate"], Resource = "${local.arn}:acm:${var.region}:${var.account_id}:certificate/*" },
     { Effect = "Allow", Action = "eks:*", Resource = ["${local.arn}:eks:${var.region}:${var.account_id}:cluster/${var.prefix}", "${local.arn}:eks:${var.region}:${var.account_id}:nodegroup/${var.prefix}/*", "${local.arn}:eks:${var.region}:${var.account_id}:access-entry/${var.prefix}/*", "${local.arn}:eks:${var.region}:${var.account_id}:addon/${var.prefix}/*"] },
     { Effect = "Allow", Action = "ecr:*", Resource = "${local.arn}:ecr:${var.region}:${var.account_id}:repository/${var.prefix}/tasky" },
     { Effect = "Allow", Action = "logs:*", Resource = ["${local.arn}:logs:${var.region}:${var.account_id}:log-group:/aws/eks/${var.prefix}/cluster", "${local.arn}:logs:${var.region}:${var.account_id}:log-group:/aws/eks/${var.prefix}/cluster:*"] },
@@ -168,24 +172,9 @@ resource "aws_iam_role_policy" "app" {
   role = aws_iam_role.ci["app"].id
   policy = jsonencode({ Version = "2012-10-17", Statement = [{
     Effect = "Allow", Action = "eks:DescribeCluster", Resource = "${local.arn}:eks:${var.region}:${var.account_id}:cluster/${var.prefix}"
+    }, {
+    Effect = "Allow", Action = "acm:DescribeCertificate", Resource = "${local.arn}:acm:${var.region}:${var.account_id}:certificate/*"
+    }, {
+    Effect = "Allow", Action = ["elasticloadbalancing:DescribeLoadBalancers", "elasticloadbalancing:DescribeListeners"], Resource = "*", Condition = { StringEquals = { "aws:RequestedRegion" = var.region } }
   }] })
-}
-
-resource "aws_iam_role_policy" "app_dns" {
-  count = var.app_dns_zone_id == null ? 0 : 1
-  name  = "app-dns-only"
-  role  = aws_iam_role.ci["app"].id
-  policy = jsonencode({ Version = "2012-10-17", Statement = [
-    { Effect = "Allow", Action = ["route53:GetHostedZone", "route53:ListResourceRecordSets", "route53:ListTagsForResource"], Resource = "${local.arn}:route53:::hostedzone/${var.app_dns_zone_id}" },
-    { Effect = "Allow", Action = "route53:ChangeResourceRecordSets", Resource = "${local.arn}:route53:::hostedzone/${var.app_dns_zone_id}", Condition = { "ForAllValues:StringEquals" = {
-      "route53:ChangeResourceRecordSetsNormalizedRecordNames" = ["tasky.abu-pse.link"],
-      "route53:ChangeResourceRecordSetsRecordTypes"           = ["A"],
-      "route53:ChangeResourceRecordSetsActions"               = ["CREATE", "UPSERT", "DELETE"]
-    } } },
-    { Effect = "Allow", Action = "route53:GetChange", Resource = "${local.arn}:route53:::change/*" },
-    { Effect = "Allow", Action = ["elasticloadbalancing:DescribeLoadBalancers", "elasticloadbalancing:DescribeLoadBalancerAttributes", "elasticloadbalancing:DescribeTags", "elasticloadbalancing:DescribeListeners", "acm:DescribeCertificate"], Resource = "*", Condition = { StringEquals = { "aws:RequestedRegion" = var.region } } },
-    { Effect = "Allow", Action = ["s3:ListBucket", "s3:GetBucketLocation", "s3:GetBucketPublicAccessBlock", "s3:GetBucketVersioning", "s3:GetEncryptionConfiguration", "s3:GetBucketPolicy"], Resource = local.bucket_arn },
-    { Effect = "Allow", Action = ["s3:GetObject", "s3:PutObject"], Resource = "${local.bucket_arn}/app-dns/terraform.tfstate" },
-    { Effect = "Allow", Action = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"], Resource = "${local.bucket_arn}/app-dns/terraform.tfstate.tflock" }
-  ] })
 }

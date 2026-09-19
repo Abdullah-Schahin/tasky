@@ -121,7 +121,7 @@ helm lint infra/helm/tasky -f infra/local/values.yaml
 The opt-in AWS app deployment job reads secret `APP_DOMAIN`, variable
 `ACM_CERTIFICATE_ARN`, and JSON-array variable `PUBLIC_SUBNET_IDS`, then generates
 Helm values for the signed image digest. Configure the private EKS runner and
-follow the [domain setup](../terraform/domain/registration/README.md) before enabling it.
+follow the [domain setup](../freedns.md) before enabling it.
 Namespace/Secret bootstrapping and initial Helm adoption are manual prerequisites.
 
 ## Demo and evidence
@@ -187,10 +187,9 @@ References: [AWS ALB annotations](https://kubernetes-sigs.github.io/aws-load-bal
 [AWS private node subnet guidance](https://docs.aws.amazon.com/eks/latest/best-practices/subnets.html),
 [Kubernetes Pod Security Admission](https://kubernetes.io/docs/concepts/security/pod-security-admission/).
 
-## Managed domain and certificate
+## FreeDNS and certificate
 
-The Infra CI/CD domain job now provisions `abu-pse.link` and an ACM certificate for
-`tasky.abu-pse.link`. The optional app deployment job supplies the hostname from
-`APP_DOMAIN` and the certificate ARN from `ACM_CERTIFICATE_ARN` to this chart, then
-points the Route 53 app alias at the controller-created ALB. See the
-[domain setup](../terraform/domain/registration/README.md) for the required workflow configuration.
+The platform requests an ACM certificate for `tasky-abu-pse.apps.dj`. Add its validation
+CNAME in FreeDNS and wait for issuance. The app workflow supplies `APP_DOMAIN` and
+`ACM_CERTIFICATE_ARN` to Helm, then reports the ALB hostname for your FreeDNS app CNAME.
+See [FreeDNS setup](../freedns.md). CI does not modify FreeDNS records.

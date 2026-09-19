@@ -40,12 +40,19 @@ variable "state_key" {
   }
 }
 
-variable "app_dns_zone_id" {
-  description = "Public hosted zone from domain-tls; null leaves app DNS deployment disabled."
+variable "github_repository_owner_id" {
   type        = string
-  default     = null
+  description = "Immutable GitHub owner ID, supplied automatically by Actions."
   validation {
-    condition     = var.app_dns_zone_id == null || can(regex("^Z[A-Z0-9]+$", var.app_dns_zone_id))
-    error_message = "Supply a Route 53 zone ID."
+    condition     = can(regex("^[0-9]+$", var.github_repository_owner_id))
+    error_message = "Supply the numeric GitHub repository owner ID."
+  }
+}
+variable "github_repository_id" {
+  type        = string
+  description = "Immutable GitHub repository ID, supplied automatically by Actions."
+  validation {
+    condition     = can(regex("^[0-9]+$", var.github_repository_id))
+    error_message = "Supply the numeric GitHub repository ID."
   }
 }

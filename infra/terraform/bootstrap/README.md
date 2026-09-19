@@ -12,7 +12,14 @@ access keys, DynamoDB, or another application registry. All taggable resources r
 | `tasky-wiz-ci-apply` | `infra-deplyoment` | Apply infrastructure, write state, read saved plans |
 | `tasky-wiz-ci-app` | `app-deployment` | Describe the named cluster; infrastructure stack adds EKS admin in namespace `tasky` |
 
-OIDC trusts match the exact, case-sensitive repository, environment and STS audience.
+OIDC trusts match the exact, case-sensitive repository plus immutable owner/repository
+IDs, environment and STS audience. This repository uses GitHub's immutable OIDC subject
+format: `repo:OWNER@OWNER_ID/REPO@REPO_ID:environment:ENVIRONMENT`.
+Actions supplies `GITHUB_REPOSITORY_OWNER_ID` and `GITHUB_REPOSITORY_ID` automatically;
+do not create GitHub variables for them. Local bootstrap runs must supply the equivalent
+Terraform inputs shown in `terraform.tfvars.example`. Rerun bootstrap apply to migrate
+existing name-only trust policies. Repositories using legacy or customized subjects
+must adapt this trust template to their actual OIDC subject before using these roles.
 Normal deployment uses OIDC; initial bootstrap uses separately supplied AWS credentials.
 Environment subjects do not themselves
 restrict branches: configure **both deployment environments to allow only `main`**. Require
@@ -47,7 +54,6 @@ Configure these environment variables (repository variables also work):
 | `BOOTSTRAP_PREFIX` | `tasky-wiz` | Must match the infrastructure stack prefix |
 | `TF_STATE_KEY` | `infra/terraform.tfstate` | Infrastructure state path, always under `infra/` |
 | `AWS_GITHUB_OIDC_PROVIDER_ARN` | Omit | Create this GitHub variable only to reuse an externally managed account-level GitHub OIDC provider; otherwise do not create it |
-| `APP_HOSTED_ZONE_ID` | Empty | Set after domain setup to grant the app role narrowly scoped DNS permissions |
 
 The repository identity comes from `github.repository`; no owner/repository variable
 or hard-coded account ID is needed in the workflow. The state bucket name is derived
@@ -145,11 +151,10 @@ Bootstrap IAM permissions are checked by mocked Terraform tests in CI; an AWS pl
 validates API reads but is not proof that every create/update API will be authorized.
 
 The app workflow publishes to GHCR and has an opt-in AWS deployment job using
-`app-deployment`. Set `APP_HOSTED_ZONE_ID` in bootstrap and rerun bootstrap apply after
-creating the domain to grant narrowly scoped DNS and app-DNS state permissions.
-The role still cannot read infrastructure, bootstrap or registrar state. See
-[domain and HTTPS setup](../domain/registration/README.md) for APP_DOMAIN, certificate,
-subnet variables and enabling `ENABLE_APP_DEPLOY`.
+`app-deployment`. It can describe the cluster, ACM certificate and ALB, but cannot
+write DNS or read Terraform state. Infrastructure CI requests the FreeDNS hostname's
+ACM certificate. See [FreeDNS setup](../../freedns.md) for manual validation records,
+app environment variables, and enabling `ENABLE_APP_DEPLOY`.
 
 When migrating from the previous environment names, create `infra-deplyoment` and
 `app-deployment` first and copy their variables/secrets. Put both
