@@ -8,7 +8,7 @@ access keys, DynamoDB, or another application registry. All taggable resources r
 
 | Role | GitHub environment | Access |
 | --- | --- | --- |
-| `tasky-wiz-ci-plan` | `infra-deplyoment` | Discovery metadata, read infrastructure state, write locks and plans |
+| `tasky-wiz-ci-plan` | None; exact `main` branch subject | Discovery metadata, read infrastructure state, write locks and plans |
 | `tasky-wiz-ci-apply` | `infra-deplyoment` | Apply infrastructure, write state, read saved plans |
 | `tasky-wiz-ci-publish` | None; main branch OIDC | Push/pull image and signing artifacts in the Tasky ECR repository only |
 | `tasky-wiz-ci-app` | `app-deployment` | Describe the named cluster; infrastructure stack adds EKS admin in namespace `tasky` |
@@ -145,9 +145,10 @@ Set `ENABLE_INFRA_DEPLOY=true` only after configuring the environments above.
 
 Infrastructure CI validates the infrastructure stack; PRs scan without AWS credentials.
 The separate manual bootstrap workflow validates/tests bootstrap before authenticating. Main runs
-plan using `infra-deplyoment`; manual dispatch with `apply=true` applies the exact saved
-plan after `infra-deplyoment` approval. Plans are stored in the private state bucket,
-not public GitHub artifacts. The plan guard rejects deletes/replacements except the exact retired demo certificate migration.
+plan without an environment approval; manual dispatch with `apply=true` applies the exact saved
+plan after `infra-deplyoment` approval, which is requested only after planning completes. Plans are stored in the private state bucket,
+not public GitHub artifacts. The summary lists resource actions, with deletions/replacements first. Approval authorizes
+all actions in that saved plan, including destructive changes; other security checks remain enforced.
 Bootstrap IAM permissions are checked by mocked Terraform tests in CI; an AWS plan
 validates API reads but is not proof that every create/update API will be authorized.
 
@@ -158,13 +159,17 @@ intentional public TLS weakness. Infrastructure roles retain ACM read/delete acc
 only for removing the retired certificate; certificate creation is no longer granted.
 
 When migrating from the previous environment names, create `infra-deplyoment` and
-`app-deployment` first and copy their variables/secrets. Put both
-`AWS_TF_PLAN_ROLE_ARN` and `AWS_TF_APPLY_ROLE_ARN` in `infra-deplyoment`.
+`app-deployment` first and copy their variables/secrets. Put
+`AWS_TF_PLAN_ROLE_ARN`, `AWS_ACCOUNT_ID`, `AWS_REGION`, `TF_STATE_BUCKET`,
+`TF_STATE_KEY`, `TFVARS_JSON`, and `ENABLE_INFRA_DEPLOY` in repository Actions variables.
+Keep `AWS_TF_APPLY_ROLE_ARN` in `infra-deplyoment` (or repository variables).
 Rerun Bootstrap Infra with apply enabled to update the OIDC trust policies before
 running deployments. The role names and Terraform state keys remain unchanged.
-Both infrastructure jobs use the same protected environment, so planning is also
-subject to its approval rules. Separate role permissions remain, but the shared OIDC
-subject no longer isolates the plan role from the apply role by environment.
+Only Apply uses the protected environment. The plan role trusts the exact immutable
+repository subject ending in `:ref:refs/heads/main`; the apply role trusts only
+`:environment:infra-deplyoment`. Require reviewers and main-only deployment branches
+on that environment. Push runs and manual runs without `apply` only plan.
+For this migration, apply Bootstrap first to update plan-role trust, then run Infra CI/CD.
 
 The runner needs private network connectivity to the EKS API. An ordinary GitHub-hosted
 runner cannot reach the private endpoint by default; this stack creates no runner fleet.

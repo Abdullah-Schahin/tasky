@@ -6,6 +6,7 @@ from pathlib import Path
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('plan_json')
+parser.add_argument('--summary', help='Append resource actions to the GitHub job summary')
 args = parser.parse_args()
 plan = json.loads(Path(args.plan_json).read_text())
 resources = {r['address']: r for r in plan['planned_values']['root_module']['resources']}
@@ -53,18 +54,25 @@ for r in managed.values():
         assert 'secret_string_wo' in expressions, f"{r['address']}: write-only credentials required"
         assert not {'secret_string', 'secret_binary'} & expressions.keys(), f"{r['address']}: persisted credential arguments forbidden"
         assert r['values']['secret_string_wo_version'] == 1, r['address']
-def retired_demo_certificate(change):
-    # Explicitly authorized migration to HTTP-only: only delete this obsolete cert.
-    before = change['change'].get('before') or {}
-    return (change['address'] == 'aws_acm_certificate.app'
-            and change['type'] == 'aws_acm_certificate'
-            and change['change']['actions'] == ['delete']
-            and before.get('domain_name') == 'tasky-abu-pse.apps.dj'
-            and before.get('validation_method') == 'DNS')
-
-destructive = [r['address'] for r in plan['resource_changes']
-               if 'delete' in r['change']['actions'] and not retired_demo_certificate(r)]
-assert not destructive, 'Destructive plan requires separate review: ' + ', '.join(destructive)
-if any(retired_demo_certificate(r) for r in plan['resource_changes']):
-    print('Expected migration: delete the retired FreeDNS ACM certificate for the HTTP-only demo.')
+# Environment approval authorizes destructive actions in the exact saved plan.
+# Report addresses/actions only; plan values can contain sensitive information.
+changes = [r for r in plan['resource_changes']
+           if r.get('mode', 'managed') == 'managed' and r['change']['actions'] != ['no-op']]
+changes.sort(key=lambda r: ('delete' not in r['change']['actions'], r['address']))
+destructive = [r for r in changes if 'delete' in r['change']['actions']]
+lines = ['## Terraform actions to review', '',
+         f'**{len(destructive)} resource(s) will be deleted or replaced.**', '',
+         'Apply approval authorizes all actions in the saved plan, including data loss from deletion or replacement.', '',
+         '| Resource | Actions |', '| --- | --- |']
+for r in changes:
+    address = r['address'].replace('|', '&#124;').replace('`', '&#96;').replace('\n', ' ')
+    lines.append(f"| `{address}` | {' → '.join(r['change']['actions'])} |")
+if not changes:
+    lines.append('| None | No changes |')
+if any(r['address'] == 'aws_instance.mongodb' for r in destructive):
+    lines += ['', '**MongoDB EC2: the current instance and its root disk will be deleted. Back up any data before approving.**']
+if args.summary:
+    with Path(args.summary).open('a') as summary:
+        summary.write('\n'.join(lines) + '\n\n')
+print(f"Review required: {len(destructive)} resource(s) deleted or replaced.")
 print(f'PASS: {len(managed)} managed resources; tags, private subnets, intended exposures, audit controls and write-only credentials checked.')

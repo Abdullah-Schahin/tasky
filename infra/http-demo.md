@@ -15,8 +15,8 @@ the missing transport encryption and server authentication are the weakness.
 
 1. Push these changes. Run and approve Bootstrap Infra to update IAM permissions.
 2. Run and review the infrastructure plan. It may delete exactly the retired
-   `aws_acm_certificate.app` for `tasky-abu-pse.apps.dj`. The plan guard permits only
-   that specific certificate deletion; other deletes/replacements still fail.
+   `aws_acm_certificate.app` for `tasky-abu-pse.apps.dj`. The job summary lists all
+   deletions/replacements; approving Apply authorizes the complete saved plan.
    Apply after review. If an older deployment already attaches that certificate to
    an ALB, deploy the HTTP-only Helm change first to detach it, then apply Terraform.
 3. Configure environment `app-deployment` with required reviewers and main-only access.

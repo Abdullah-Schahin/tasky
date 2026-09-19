@@ -23,7 +23,7 @@ run "identity_and_state_isolation" {
   command = apply
   assert {
     condition = alltrue([for key, role in aws_iam_role.ci :
-      jsondecode(role.assume_role_policy).Statement[0].Condition.StringEquals["token.actions.githubusercontent.com:sub"] == "repo:Abdullah-Schahin@33698941/tasky@1374160582:environment:${local.environments[key]}" &&
+      jsondecode(role.assume_role_policy).Statement[0].Condition.StringEquals["token.actions.githubusercontent.com:sub"] == (key == "plan" ? "repo:Abdullah-Schahin@33698941/tasky@1374160582:ref:refs/heads/main" : "repo:Abdullah-Schahin@33698941/tasky@1374160582:environment:${local.environments[key]}") &&
       jsondecode(role.assume_role_policy).Statement[0].Condition.StringEquals["token.actions.githubusercontent.com:aud"] == "sts.amazonaws.com"
     ])
     error_message = "Every CI role must trust only its exact repository/environment and STS audience."

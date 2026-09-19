@@ -36,7 +36,7 @@ resource "aws_iam_role" "ci" {
     Principal = { Federated = local.oidc_arn },
     Condition = { StringEquals = {
       "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com",
-      "token.actions.githubusercontent.com:sub" = "${local.github_subject_prefix}:environment:${each.value}"
+      "token.actions.githubusercontent.com:sub" = each.key == "plan" ? "${local.github_subject_prefix}:ref:refs/heads/main" : "${local.github_subject_prefix}:environment:${each.value}"
     } }
   }] })
 }

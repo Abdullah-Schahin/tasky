@@ -99,7 +99,6 @@ jobs:
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && vars.ENABLE_INFRA_DEPLOY == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    environment: infra-deplyoment
     permissions:
       contents: read
       id-token: write
@@ -138,7 +137,7 @@ jobs:
         run: |
           terraform -chdir=infra/terraform/platform plan -input=false -lock-timeout=5m -out="$RUNNER_TEMP/tasky.tfplan"
           terraform -chdir=infra/terraform/platform show -json "$RUNNER_TEMP/tasky.tfplan" > "$RUNNER_TEMP/tasky-plan.json"
-          python3 .github/scripts/terraform-plan-check.py "$RUNNER_TEMP/tasky-plan.json"
+          python3 .github/scripts/terraform-plan-check.py "$RUNNER_TEMP/tasky-plan.json" --summary "$GITHUB_STEP_SUMMARY"
           terraform -chdir=infra/terraform/platform show -no-color "$RUNNER_TEMP/tasky.tfplan" > "$RUNNER_TEMP/tasky-plan.txt"
           sha=$(sha256sum "$RUNNER_TEMP/tasky.tfplan" | cut -d ' ' -f 1)
           key="plans/$GITHUB_RUN_ID/$GITHUB_RUN_ATTEMPT/$GITHUB_SHA/tasky.tfplan"
@@ -151,7 +150,7 @@ jobs:
             echo "Commit: $GITHUB_SHA"
             echo "Private review file: s3://$TF_STATE_BUCKET/$key.txt"
             echo "Plan SHA256: $sha"
-            echo 'Apply requires a manual run on main and infra-deplyoment environment approval.'
+            echo 'Review the full private plan above before approving Apply. Approval authorizes every action in this exact plan, including deletions and replacements.'
           } >> "$GITHUB_STEP_SUMMARY"
 
   apply:
