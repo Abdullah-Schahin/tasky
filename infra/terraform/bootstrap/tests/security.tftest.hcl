@@ -56,6 +56,16 @@ run "policy_size_limits" {
     error_message = "Policies must fit the AWS role inline and managed policy size quotas."
   }
 }
+run "bucket_discovery_scope" {
+  command = plan
+  assert {
+    condition = jsondecode(aws_iam_policy.discovery.policy).Statement[1].Action == ["s3:ListBucket"] && toset(jsondecode(aws_iam_policy.discovery.policy).Statement[1].Resource) == toset([
+      "arn:aws:s3:::tasky-wiz-audit-516027198761-us-east-1",
+      "arn:aws:s3:::tasky-wiz-backup-516027198761-us-east-1"
+    ])
+    error_message = "Bucket existence checks must be allowed only for the two platform buckets, without object access."
+  }
+}
 run "reuse_existing_oidc" {
   command = plan
   variables {

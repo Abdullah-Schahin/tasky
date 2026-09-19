@@ -105,6 +105,10 @@ resource "aws_iam_policy" "discovery" {
       "config:Describe*", "config:ListTagsForResource", "cloudtrail:DescribeTrails", "cloudtrail:GetTrail*", "cloudtrail:GetEventSelectors", "cloudtrail:ListTags",
       "guardduty:GetDetector", "guardduty:ListDetectors", "guardduty:ListTagsForResource", "securityhub:DescribeHub", "securityhub:ListTagsForResource", "securityhub:GetEnabledStandards"
     ]
+    }, {
+    # HeadBucket requires ListBucket even when Terraform never reads objects.
+    Effect   = "Allow", Action = ["s3:ListBucket"],
+    Resource = [for kind in ["audit", "backup"] : "${local.arn}:s3:::${var.prefix}-${kind}-${var.account_id}-${var.region}"]
   }] })
 }
 resource "aws_iam_role_policy_attachment" "discovery" {
