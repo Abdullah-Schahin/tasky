@@ -1,4 +1,4 @@
-name: Bootstrap AWS account
+name: Bootstrap Infra
 
 on:
   workflow_dispatch:

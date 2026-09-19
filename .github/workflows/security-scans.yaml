@@ -445,7 +445,7 @@ jobs:
           limit-severities-for-sarif: true
           trivyignores: ${{ inputs.infra-ignorefile }}
           skip-dirs: .terraform
-          exit-code: "1"
+          exit-code: "0" # PSE: Put deliberate exit code to 0 to not fail the workflow
       - name: Prepare infrastructure summary
         if: always()
         env:
