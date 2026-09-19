@@ -86,6 +86,7 @@ jobs:
   security:
     name: Infra Security
     uses: ./.github/workflows/security-scans.yaml
+    needs: [validate]
     permissions:
       contents: read
       actions: read
