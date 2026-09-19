@@ -5,10 +5,10 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
     branches: [main]
-    paths-ignore: ["infra/terraform/**", "**.md"]
+    paths-ignore: ["infra/terraform/**", "**.md", ".github/scripts/**"]
   push:
     branches: [main]
-    paths-ignore: ["infra/terraform/**", "**.md"]
+    paths-ignore: ["infra/terraform/**", "**.md", ".github/scripts/**"]
 
 env:
   AWS_REGION: ${{ vars.AWS_REGION }}

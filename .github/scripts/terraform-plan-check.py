@@ -45,9 +45,14 @@ assert values('aws_launch_template.nodes')['metadata_options'][0]['http_tokens']
 assert values('aws_instance.mongodb')['metadata_options'][0]['http_tokens'] == 'required'
 for r in managed.values():
     if r['type'] == 'aws_secretsmanager_secret_version':
-        assert r['values'].get('secret_string') is None
-        assert r['values'].get('secret_string_wo') is None
-        assert r['values']['secret_string_wo_version'] == 1
+        # Refreshed SDK state can represent an unset optional string as "".
+        # Neither representation contains credentials; reject any actual value.
+        for field in ('secret_string', 'secret_binary', 'secret_string_wo'):
+            assert r['values'].get(field) in (None, ''), f"{r['address']}: {field} contains persisted secret material"
+        expressions = config[r['address'].split('[')[0]]['expressions']
+        assert 'secret_string_wo' in expressions, f"{r['address']}: write-only credentials required"
+        assert not {'secret_string', 'secret_binary'} & expressions.keys(), f"{r['address']}: persisted credential arguments forbidden"
+        assert r['values']['secret_string_wo_version'] == 1, r['address']
 def retired_demo_certificate(change):
     # Explicitly authorized migration to HTTP-only: only delete this obsolete cert.
     before = change['change'].get('before') or {}
@@ -57,8 +62,9 @@ def retired_demo_certificate(change):
             and before.get('domain_name') == 'tasky-abu-pse.apps.dj'
             and before.get('validation_method') == 'DNS')
 
-assert not any('delete' in r['change']['actions'] and not retired_demo_certificate(r)
-               for r in plan['resource_changes']), 'Destructive plan requires separate review'
+destructive = [r['address'] for r in plan['resource_changes']
+               if 'delete' in r['change']['actions'] and not retired_demo_certificate(r)]
+assert not destructive, 'Destructive plan requires separate review: ' + ', '.join(destructive)
 if any(retired_demo_certificate(r) for r in plan['resource_changes']):
     print('Expected migration: delete the retired FreeDNS ACM certificate for the HTTP-only demo.')
 print(f'PASS: {len(managed)} managed resources; tags, private subnets, intended exposures, audit controls and write-only credentials checked.')

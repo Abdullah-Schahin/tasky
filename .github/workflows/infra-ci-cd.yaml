@@ -8,11 +8,7 @@ on:
         "infra/terraform/**",
         ".github/workflows/infra-ci-cd.yaml",
         ".github/workflows/security-scans.yaml",
-        ".github/scripts/terraform_ci.py",
-        ".github/scripts/terraform-plan-check.py",
-        ".github/scripts/security-summary.py",
-        ".github/scripts/trufflehog-filter.py",
-        ".github/scripts/security-comment.py",
+        ".github/scripts/**",
       ]
   push:
     branches: [main]
@@ -21,11 +17,7 @@ on:
         "infra/terraform/**",
         ".github/workflows/infra-ci-cd.yaml",
         ".github/workflows/security-scans.yaml",
-        ".github/scripts/terraform_ci.py",
-        ".github/scripts/terraform-plan-check.py",
-        ".github/scripts/security-summary.py",
-        ".github/scripts/trufflehog-filter.py",
-        ".github/scripts/security-comment.py",
+        ".github/scripts/**",
       ]
   workflow_dispatch:
     inputs:
