@@ -44,6 +44,14 @@ assert {'audit', 'api', 'authenticator'} <= set(cluster['enabled_cluster_log_typ
 assert cluster['vpc_config'][0]['endpoint_private_access']
 assert values('aws_launch_template.nodes')['metadata_options'][0]['http_tokens'] == 'required'
 assert values('aws_instance.mongodb')['metadata_options'][0]['http_tokens'] == 'required'
+if 'aws_instance.runner' in managed:
+    runner = values('aws_instance.runner')
+    assert not runner['associate_public_ip_address'], 'Runner must have no public IP'
+    assert not runner.get('key_name'), 'Runner must use SSM, not SSH'
+    assert runner['metadata_options'][0]['http_tokens'] == 'required'
+    assert runner['root_block_device'][0]['encrypted']
+    runner_refs = config['aws_instance.runner']['expressions']['subnet_id']['references']
+    assert 'aws_subnet.private' in runner_refs, 'Runner must use a private subnet'
 for r in managed.values():
     if r['type'] == 'aws_secretsmanager_secret_version':
         # Refreshed SDK state can represent an unset optional string as "".

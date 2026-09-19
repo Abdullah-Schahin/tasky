@@ -88,3 +88,15 @@ run "ecr_publish_and_pull_isolation" {
     error_message = "Publishing must be scoped to Tasky's repository; deployment must have pull-only access."
   }
 }
+
+run "runner_identity_scope" {
+  command = plan
+  assert {
+    condition     = contains(local.workload_roles, "arn:aws:iam::516027198761:role/tasky-wiz-runner") && contains(local.managed_policies, "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore")
+    error_message = "Apply must be able to manage the bounded SSM runner identity."
+  }
+  assert {
+    condition     = contains(jsondecode(aws_s3_bucket_policy.state.policy).Statement[1].Condition.ArnEquals["aws:PrincipalArn"], "arn:aws:iam::516027198761:role/tasky-wiz-runner")
+    error_message = "Runner instance credentials must be excluded from Terraform state."
+  }
+}

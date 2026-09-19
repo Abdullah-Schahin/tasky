@@ -162,6 +162,9 @@ the first backup succeeded; use the checks below.
 
 ## Connect EKS, install controller, deploy the app
 
+First provision and register the [private deployment runner](RUNNER.md). It supplies
+the existing app workflow with private EKS connectivity; no public EKS endpoint is needed.
+
 The private API requires a network path into the VPC (existing VPN/tunnel/runner), or
 set `eks_public_access_cidrs` to your current public IPv4 `/32`, replan and review.
 No public `0.0.0.0/0` EKS API access is accepted.

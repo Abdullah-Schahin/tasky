@@ -172,7 +172,7 @@ on that environment. Push runs and manual runs without `apply` only plan.
 For this migration, apply Bootstrap first to update plan-role trust, then run Infra CI/CD.
 
 The runner needs private network connectivity to the EKS API. An ordinary GitHub-hosted
-runner cannot reach the private endpoint by default; this stack creates no runner fleet.
+runner cannot reach the private endpoint by default; the platform stack creates a dedicated private deployment runner; see [runner setup](../platform/RUNNER.md).
 
 ## One-time cluster setup by an operator
 

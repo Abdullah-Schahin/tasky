@@ -18,9 +18,9 @@ locals {
   github_subject_prefix = "repo:${split("/", var.github_repository)[0]}@${var.github_repository_owner_id}/${split("/", var.github_repository)[1]}@${var.github_repository_id}"
   environments          = { plan = "infra-deplyoment", apply = "infra-deplyoment", app = "app-deployment" }
   oidc_arn              = var.AWS_GITHUB_OIDC_PROVIDER_ARN != null ? var.AWS_GITHUB_OIDC_PROVIDER_ARN : aws_iam_openid_connect_provider.github[0].arn
-  workload_roles        = [for name in ["eks", "nodes", "mongodb", "config", "load-balancer-controller"] : "${local.account_arn}:role/${var.prefix}-${name}"]
+  workload_roles        = [for name in ["eks", "nodes", "mongodb", "config", "load-balancer-controller", "runner"] : "${local.account_arn}:role/${var.prefix}-${name}"]
   workload_policies     = [for name in ["mongodb-privilege-creep", "load-balancer-controller"] : "${local.account_arn}:policy/${var.prefix}-${name}"]
-  managed_policies      = [for name in ["AmazonEKSClusterPolicy", "AmazonEKSWorkerNodePolicy", "AmazonEC2ContainerRegistryPullOnly", "AmazonEKS_CNI_Policy", "service-role/AWS_ConfigRole"] : "${local.arn}:iam::aws:policy/${name}"]
+  managed_policies      = [for name in ["AmazonEKSClusterPolicy", "AmazonEKSWorkerNodePolicy", "AmazonEC2ContainerRegistryPullOnly", "AmazonEKS_CNI_Policy", "service-role/AWS_ConfigRole", "AmazonSSMManagedInstanceCore"] : "${local.arn}:iam::aws:policy/${name}"]
 }
 resource "aws_iam_openid_connect_provider" "github" {
   count          = var.AWS_GITHUB_OIDC_PROVIDER_ARN == null ? 1 : 0
@@ -135,7 +135,7 @@ resource "aws_iam_role_policy" "apply_iam" {
     { Effect = "Allow", Action = ["iam:DeleteRole", "iam:UpdateAssumeRolePolicy", "iam:UpdateRole", "iam:TagRole", "iam:UntagRole", "iam:PutRolePolicy", "iam:DeleteRolePolicy", "iam:DetachRolePolicy"], Resource = local.workload_roles },
     { Effect = "Allow", Action = "iam:AttachRolePolicy", Resource = local.workload_roles, Condition = { ArnEquals = { "iam:PolicyARN" = concat(local.workload_policies, local.managed_policies) } } },
     { Effect = "Allow", Action = ["iam:CreatePolicy", "iam:DeletePolicy", "iam:CreatePolicyVersion", "iam:DeletePolicyVersion", "iam:SetDefaultPolicyVersion", "iam:TagPolicy", "iam:UntagPolicy"], Resource = local.workload_policies },
-    { Effect = "Allow", Action = ["iam:CreateInstanceProfile", "iam:DeleteInstanceProfile", "iam:AddRoleToInstanceProfile", "iam:RemoveRoleFromInstanceProfile", "iam:TagInstanceProfile", "iam:UntagInstanceProfile"], Resource = "${local.account_arn}:instance-profile/${var.prefix}-mongodb" },
+    { Effect = "Allow", Action = ["iam:CreateInstanceProfile", "iam:DeleteInstanceProfile", "iam:AddRoleToInstanceProfile", "iam:RemoveRoleFromInstanceProfile", "iam:TagInstanceProfile", "iam:UntagInstanceProfile"], Resource = [for name in ["mongodb", "runner"] : "${local.account_arn}:instance-profile/${var.prefix}-${name}"] },
     { Effect = "Allow", Action = "iam:PassRole", Resource = local.workload_roles, Condition = { StringEquals = { "iam:PassedToService" = ["ec2.amazonaws.com", "eks.amazonaws.com", "config.amazonaws.com"] } } },
     { Effect = "Allow", Action = ["iam:CreateOpenIDConnectProvider", "iam:DeleteOpenIDConnectProvider", "iam:UpdateOpenIDConnectProviderThumbprint", "iam:AddClientIDToOpenIDConnectProvider", "iam:RemoveClientIDFromOpenIDConnectProvider", "iam:TagOpenIDConnectProvider", "iam:UntagOpenIDConnectProvider"], Resource = "${local.account_arn}:oidc-provider/oidc.eks.${var.region}.amazonaws.com/id/*" },
     { Effect = "Allow", Action = "iam:CreateServiceLinkedRole", Resource = "${local.account_arn}:role/aws-service-role/*", Condition = { StringEquals = { "iam:AWSServiceName" = ["eks.amazonaws.com", "eks-nodegroup.amazonaws.com", "autoscaling.amazonaws.com", "elasticloadbalancing.amazonaws.com", "guardduty.amazonaws.com", "securityhub.amazonaws.com"] } } }
