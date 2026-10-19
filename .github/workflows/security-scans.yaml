@@ -64,7 +64,7 @@ jobs:
       issues: write
     steps:
       - name: Runtime Security Agent (Cimon)
-        uses: cycodelabs/cimon-action@1374f7193c5a4390740fa451feb05ce812955958
+        uses: cycodelabs/cimon-action@f6fe31f1d7306ec77f3ee6b8312f033d4084c0ca
         with:
           prevent: true
           allowed-hosts: >
@@ -145,7 +145,7 @@ jobs:
         run: python3 .github/scripts/security-comment.py
       - name: Upload trufflehog summary
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: ${{ inputs.report-prefix }}-trufflehog-summary
           path: report.md
@@ -165,7 +165,7 @@ jobs:
       issues: write
     steps:
       - name: Runtime Security Agent (Cimon)
-        uses: cycodelabs/cimon-action@1374f7193c5a4390740fa451feb05ce812955958
+        uses: cycodelabs/cimon-action@f6fe31f1d7306ec77f3ee6b8312f033d4084c0ca
         with:
           prevent: true
           allowed-hosts: >
@@ -197,7 +197,7 @@ jobs:
       - *comment-result
       - name: Upload bearer summary
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: ${{ inputs.report-prefix }}-bearer-summary
           path: report.md
@@ -205,7 +205,7 @@ jobs:
           retention-days: 7
       - name: Upload Bearer SARIF
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: ${{ inputs.report-prefix }}-bearer-sarif
           path: bearer.sarif
@@ -221,7 +221,7 @@ jobs:
       issues: write
     steps:
       - name: Runtime Security Agent (Cimon)
-        uses: cycodelabs/cimon-action@1374f7193c5a4390740fa451feb05ce812955958
+        uses: cycodelabs/cimon-action@f6fe31f1d7306ec77f3ee6b8312f033d4084c0ca
         with:
           prevent: true
           allowed-hosts: >
@@ -256,7 +256,7 @@ jobs:
       - *comment-result
       - name: Upload govulncheck summary
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: ${{ inputs.report-prefix }}-govulncheck-summary
           path: report.md
@@ -264,7 +264,7 @@ jobs:
           retention-days: 7
       - name: Upload govulncheck report
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: ${{ inputs.report-prefix }}-govulncheck-report
           path: govulncheck.json
@@ -281,7 +281,7 @@ jobs:
       actions: read
     steps:
       - name: Runtime Security Agent (Cimon)
-        uses: cycodelabs/cimon-action@1374f7193c5a4390740fa451feb05ce812955958
+        uses: cycodelabs/cimon-action@f6fe31f1d7306ec77f3ee6b8312f033d4084c0ca
         with:
           prevent: false
           allowed-hosts: >
@@ -294,7 +294,7 @@ jobs:
           persist-credentials: false
       - *initialize-issue
       - name: Download candidate image
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           artifact-ids: ${{ inputs.image-artifact-id }}
           path: ${{ runner.temp }}/scan-image
@@ -325,7 +325,7 @@ jobs:
       - *comment-result
       - name: Upload trivy summary
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: ${{ inputs.report-prefix }}-trivy-summary
           path: report.md
@@ -334,7 +334,7 @@ jobs:
 
       - name: Upload Trivy SARIF artifact
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ inputs.report-prefix }}-trivy-sarif
           path: trivy.sarif
@@ -350,7 +350,7 @@ jobs:
       issues: write
     steps:
       - name: Runtime Security Agent (Cimon)
-        uses: cycodelabs/cimon-action@1374f7193c5a4390740fa451feb05ce812955958
+        uses: cycodelabs/cimon-action@f6fe31f1d7306ec77f3ee6b8312f033d4084c0ca
         with:
           prevent: true
           allowed-hosts: >
@@ -383,7 +383,7 @@ jobs:
       - *comment-result
       - name: Upload infrastructure summary
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: ${{ inputs.report-prefix }}-trivy-infra-summary
           path: report.md
@@ -391,7 +391,7 @@ jobs:
           retention-days: 7
       - name: Upload infrastructure SARIF
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: ${{ inputs.report-prefix }}-trivy-infra-sarif
           path: trivy-infra.sarif
