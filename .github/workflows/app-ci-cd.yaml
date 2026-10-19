@@ -25,7 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Runtime Security Agent (Cimon)
-        uses: cycodelabs/cimon-action@1374f7193c5a4390740fa451feb05ce812955958
+        uses: cycodelabs/cimon-action@f6fe31f1d7306ec77f3ee6b8312f033d4084c0ca
         with:
           prevent: true
       - name: Checkout code
@@ -53,7 +53,7 @@ jobs:
         shell: bash
     steps:
       - name: Runtime Security Agent (Cimon)
-        uses: cycodelabs/cimon-action@1374f7193c5a4390740fa451feb05ce812955958
+        uses: cycodelabs/cimon-action@f6fe31f1d7306ec77f3ee6b8312f033d4084c0ca
         with:
           prevent: false
           allowed-hosts: >
@@ -102,7 +102,7 @@ jobs:
       evidence-sha256: ${{ steps.evidence.outputs.sha256 }}
     steps:
       - name: Runtime Security Agent (Cimon)
-        uses: cycodelabs/cimon-action@1374f7193c5a4390740fa451feb05ce812955958
+        uses: cycodelabs/cimon-action@f6fe31f1d7306ec77f3ee6b8312f033d4084c0ca
         with:
           prevent: true
           allowed-hosts: >
@@ -115,7 +115,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       - name: Extract metadata (unique immutable release tag)
         id: meta
@@ -193,7 +193,7 @@ jobs:
 
       - name: Upload candidate image for scanning and publishing
         id: upload-image
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: candidate-image
           path: |
@@ -237,13 +237,13 @@ jobs:
       digest: ${{ steps.push.outputs.digest }}
     steps:
       - name: Runtime Security Agent (Cimon)
-        uses: cycodelabs/cimon-action@1374f7193c5a4390740fa451feb05ce812955958
+        uses: cycodelabs/cimon-action@f6fe31f1d7306ec77f3ee6b8312f033d4084c0ca
         with:
           prevent: false
           allowed-hosts: >
             tuf-repo-cdn.sigstore.dev
       - name: Download scanned image
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           artifact-ids: ${{ needs.containerize.outputs.artifact-id }}
           path: ${{ runner.temp }}/scanned-image
@@ -334,7 +334,7 @@ jobs:
       IMAGE_DIGEST: ${{ needs.publish-sign.outputs.digest }}
     steps:
       - name: Runtime Security Agent (Cimon)
-        uses: cycodelabs/cimon-action@1374f7193c5a4390740fa451feb05ce812955958
+        uses: cycodelabs/cimon-action@f6fe31f1d7306ec77f3ee6b8312f033d4084c0ca
         with:
           prevent: false
       - name: Checkout
